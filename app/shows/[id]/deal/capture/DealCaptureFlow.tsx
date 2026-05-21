@@ -76,6 +76,12 @@ export function DealCaptureFlow({
   // Cached after a successful save — passed to /api/draft-clarification so
   // the email body has a clickable magic-link URL the agent can use.
   const [dealShareToken, setDealShareToken] = useState<string | null>(null);
+  // Runtime-tracked dealId. Initialized from server props but updated when
+  // we lazy-save the deal mid-flow (e.g. on the first [Simulate agent reply]
+  // click before the user has clicked Save).
+  const [currentDealId, setCurrentDealId] = useState<string | null>(
+    initial.dealId,
+  );
 
   async function handleExtract() {
     setError(null);
@@ -122,36 +128,93 @@ export function DealCaptureFlow({
     setHoveredFieldKey(fieldKey);
   }
 
+  /** Lazy-save the deal so we have a dealId to anchor server-side mutations.
+   *  No-op if the deal already exists. Returns the (possibly newly created)
+   *  dealId, or null on failure. */
+  async function persistDealIfNeeded(): Promise<string | null> {
+    if (currentDealId) return currentDealId;
+    if (!extraction) return null;
+    const res = await fetch("/api/save-deal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        showId,
+        externalId: initial.showExternalId,
+        sourceProse: prose,
+        extraction,
+        resolutions,
+        ambiguitiesFlaggedCount: extraction.ambiguities.length,
+      }),
+    });
+    if (!res.ok) return null;
+    const saved = await res.json().catch(() => ({}));
+    if (saved?.dealId) setCurrentDealId(saved.dealId);
+    if (saved?.dealShareToken) setDealShareToken(saved.dealShareToken);
+    return saved?.dealId ?? null;
+  }
+
   async function handleSimulateAgent(
     ambiguityId: string,
     resolution: string,
   ) {
-    if (!initial.dealId || !extraction) {
-      // No persisted deal yet — apply locally only.
-      handleLocalResolve(ambiguityId, resolution);
+    if (!extraction) return;
+    setError(null);
+
+    // Optimistic local apply so the card updates instantly while the server
+    // round-trip runs. Rolled back below if the persist fails.
+    const previousExtraction = extraction;
+    const previousResolutions = resolutions;
+    setExtraction((prev) =>
+      prev
+        ? {
+            ...prev,
+            ambiguities: prev.ambiguities.map((a) =>
+              a.id === ambiguityId
+                ? {
+                    ...a,
+                    resolution,
+                    resolved_at: new Date().toISOString(),
+                    resolved_by: "agent_simulated",
+                  }
+                : a,
+            ),
+          }
+        : prev,
+    );
+    handleLocalResolve(ambiguityId, resolution);
+
+    // Lazy-save the deal if we don't have one yet — required so the server
+    // can persist the resolution against a real row.
+    const dealId = await persistDealIfNeeded();
+    if (!dealId) {
+      setExtraction(previousExtraction);
+      setResolutions(previousResolutions);
+      setError("Could not persist the deal — try again.");
       return;
     }
-    const ambig = extraction.ambiguities.find((a) => a.id === ambiguityId);
-    const clauseRef = ambig?.field ?? "recoups[0].position";
 
-    const res = await fetch("/api/simulate-agent-reply", {
+    const res = await fetch("/api/resolve-ambiguity", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        dealId: initial.dealId,
+        dealId,
         ambiguityId,
-        resolution,
+        resolvedValue: resolution,
+        resolvedBy: "agent_simulated",
         agentName,
-        clauseRef,
       }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
+      setExtraction(previousExtraction);
+      setResolutions(previousResolutions);
       setError(data.error ?? `Simulate failed: ${res.status}`);
       return;
     }
+
+    // Mirror the persisted state back so resolved_by/resolved_at match what
+    // the server wrote (timestamps converge with the activity event).
     const data = await res.json();
-    // Mirror the DB mutation into the local extraction state.
     setExtraction((prev) =>
       prev
         ? {
@@ -165,7 +228,6 @@ export function DealCaptureFlow({
           }
         : prev,
     );
-    handleLocalResolve(ambiguityId, resolution);
   }
 
   async function handleSave() {

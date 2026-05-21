@@ -74,6 +74,10 @@ export type RecoupPosition =
   | "off_artist_share"
   | "ambiguous";
 
+/** Who or what marked the resolution. `agent_simulated` is a demo affordance
+ *  — distinguishes a "Simulate agent reply" click from a real inbound reply. */
+export type ResolvedBy = "agent" | "tour_manager" | "user" | "agent_simulated";
+
 export type RecoupV2 = {
   id: string;
   category:
@@ -88,7 +92,7 @@ export type RecoupV2 = {
   position: RecoupPosition;
   status: "agreed" | "disputed" | "withdrawn";
   prose_span?: string;
-  position_resolved_by?: "agent" | "tour_manager" | "user";
+  position_resolved_by?: ResolvedBy;
   position_resolved_at?: string;
 };
 
@@ -99,7 +103,7 @@ export type Ambiguity = {
   candidate_readings: string[];
   resolution?: string;
   resolved_at?: string;
-  resolved_by?: "agent" | "tour_manager" | "user";
+  resolved_by?: ResolvedBy;
   estimated_impact_usd?: number;
 };
 

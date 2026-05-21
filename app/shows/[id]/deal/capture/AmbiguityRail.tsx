@@ -65,6 +65,15 @@ function AmbiguityCard({
     const reading =
       ambiguity.candidate_readings.find((r) => r.structured_value === resolved)
         ?.label ?? resolved;
+    const resolvedByLabel: Record<string, string> = {
+      user: "by you",
+      agent: `by ${agentName}`,
+      agent_simulated: `by ${agentName} (simulated)`,
+      tour_manager: "by tour manager",
+    };
+    const byLabel = ambiguity.resolved_by
+      ? (resolvedByLabel[ambiguity.resolved_by] ?? `via ${ambiguity.resolved_by}`)
+      : "(unsaved)";
     return (
       <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-brand-200 bg-brand-50">
         <Check className="size-4 text-brand-700 shrink-0" />
@@ -76,11 +85,9 @@ function AmbiguityCard({
             {ambiguity.prose_span}
           </div>
         </div>
-        {ambiguity.resolved_by && (
-          <span className="text-[10px] text-brand-700/80">
-            via {ambiguity.resolved_by}
-          </span>
-        )}
+        <span className="text-[10px] text-brand-700/80 shrink-0">
+          {byLabel}
+        </span>
       </div>
     );
   }
