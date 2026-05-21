@@ -448,6 +448,15 @@ export type Bonus =
       type: "tier_ratchet";
       label: string;
       tiers: { from: number; to: number | null; percentage: number }[];
+      /**
+       * How the ratchet applies once a tier threshold is crossed.
+       *   - "split":         net is sliced across tiers (each tier paid at its own rate)
+       *   - "flat_ratchet":  the highest crossed tier's % applies to the entire net
+       *   - "ambiguous":     extraction couldn't pick one; engine defaults to "split"
+       *                      and emits an ambiguity flag on the branch trace step
+       * Absent on legacy bonuses — V2 engine treats undefined as "split".
+       */
+      reading?: "split" | "flat_ratchet" | "ambiguous";
     };
 
 export type Recoup = {

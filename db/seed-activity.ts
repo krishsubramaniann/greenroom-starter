@@ -15,7 +15,12 @@
 
 // Canonical `activityEvents` table lives in ./schema. Re-exported here so
 // downstream importers can keep a single import path if they prefer.
-export { activityEvents } from "./schema";
+import { activityEvents } from "./schema";
+export { activityEvents };
+
+// Insert shape for the activity_events table — narrows enum fields so the
+// seed arrays type-check against db.insert(activityEvents).values(...).
+type ActivityEventInsert = typeof activityEvents.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Coastal Spell — full lifecycle events (Dec 12 2024 → Mar 16 2025)
@@ -24,7 +29,7 @@ export { activityEvents } from "./schema";
 const COASTAL_SPELL_DEAL_ID = "CRES-COA-2025-03-14";
 const COASTAL_SPELL_SHOW_ID = "show_coastal_spell_dispute";
 
-export const coastalSpellActivitySeed = [
+export const coastalSpellActivitySeed: ActivityEventInsert[] = [
   // ── DEAL CAPTURE PHASE (T-3 months) ──────────────────────────────────────
   {
     id: "ae_cs_001",
@@ -416,7 +421,7 @@ export const coastalSpellActivitySeed = [
 // Pale Lake April 23 2026 — gives the Loom a "future show, clean state" example
 // to contrast against Coastal Spell's full lifecycle. Only ~6 events needed.
 
-export const paleLakeActivitySeed = [
+export const paleLakeActivitySeed: ActivityEventInsert[] = [
   {
     id: "ae_pl_001",
     dealId: "CRES-PL-2026-04-23",
