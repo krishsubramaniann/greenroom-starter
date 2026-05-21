@@ -73,7 +73,7 @@ export function BranchSummary({ branches, dealType }: Props) {
   if (dealType === "percentage_of_gross" || dealType === "percentage_of_net") {
     return (
       <div className="text-[12px] text-ink-600">
-        Percentage branch only ·{" "}
+        Percentage only ·{" "}
         <span className="text-ink-900 font-medium">
           {formatMoney(branches.percentage)}
         </span>
@@ -85,13 +85,13 @@ export function BranchSummary({ branches, dealType }: Props) {
   return (
     <div className="grid grid-cols-2 gap-3">
       <BranchPanel
-        label="Guarantee branch"
+        label="Guarantee"
         value={branches.guarantee}
         isWinner={branches.winner === "guarantee"}
         tone="ink"
       />
       <BranchPanel
-        label="Percentage branch"
+        label="Percentage"
         value={branches.percentage}
         isWinner={branches.winner === "percentage"}
         tone="brand"

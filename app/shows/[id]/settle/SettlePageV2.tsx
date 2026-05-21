@@ -312,10 +312,10 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 </CardContent>
               </Card>
 
-              {/* Engine summary */}
+              {/* Settlement summary */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-[14px]">Engine summary</CardTitle>
+                  <CardTitle className="text-[14px]">Settlement summary</CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-3 pt-0">
                   <Field
@@ -334,7 +334,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                     mono
                   />
                   <Field
-                    label="Branch winner"
+                    label="Settlement base"
                     value={
                       result.branches.winner === "percentage"
                         ? "Percentage"

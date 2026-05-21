@@ -492,13 +492,13 @@ export function calculateSettlementV2(
     key: KEY_BRANCH,
     label:
       deal.dealType === "vs"
-        ? "Branch: max(guarantee, percentage)"
+        ? "Higher of guarantee or percentage"
         : deal.dealType === "flat"
           ? "Guarantee"
           : "Percentage",
     value: base,
     kind: "branch",
-    source: { type: "deal_term", field: "branches" },
+    source: { type: "deal_term", field: "settlement_base" },
     formula: branchFormula,
     flag: percentageBranchAmbiguous ? "ambiguity" : undefined,
   });
@@ -544,7 +544,7 @@ export function calculateSettlementV2(
     label: "Total to artist",
     value: totalToArtist,
     kind: "result",
-    source: { type: "derived", detail: "branch + bonuses − off-artist-share recoups" },
+    source: { type: "derived", detail: "settlement base + bonuses − off-artist-share recoups" },
     formula: `Total to artist = ${fmtMoney(totalToArtist)}`,
   });
 
@@ -685,6 +685,6 @@ function evaluateBonus(
     ...baseStep,
     value: 0,
     flag: "not_triggered",
-    formula: `Tier ratchet — consumed by branch computation`,
+    formula: `Tier ratchet — consumed by percentage computation`,
   };
 }
