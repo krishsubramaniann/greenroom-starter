@@ -12,14 +12,15 @@
  */
 
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle } from "lucide-react";
-import { eq, and, desc } from "drizzle-orm";
+import { ArrowLeft, AlertTriangle, Check } from "lucide-react";
+import { eq, and, desc, like } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { db } from "@/db";
 import {
   walkthroughAcks as walkthroughAcksTable,
   shareLinks as shareLinksTable,
+  clauseComments as clauseCommentsTable,
   type WalkthroughAck,
   type Deal,
 } from "@/db/schema";
@@ -130,6 +131,56 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     ? await ensureSettlementShareLink(settlement.id)
     : "/shared/settlement/unavailable";
 
+  // Agent signoff state — most recent share_link for this settlement carries
+  // the canonical signoff status (open / agreed / questions).
+  let signoff: {
+    status: "open" | "agreed" | "questions";
+    text: string | null;
+    byName: string | null;
+    at: Date | null;
+  } | null = null;
+  if (settlement) {
+    const [link] = await db
+      .select()
+      .from(shareLinksTable)
+      .where(
+        and(
+          eq(shareLinksTable.resourceType, "settlement"),
+          eq(shareLinksTable.resourceId, settlement.id),
+        ),
+      )
+      .orderBy(desc(shareLinksTable.createdAt))
+      .limit(1);
+    if (link) {
+      signoff = {
+        status: link.signoffStatus,
+        text: link.signoffText,
+        byName: link.signoffByName,
+        at: link.signoffAt,
+      };
+    }
+  }
+
+  // Trace-line questions — clause_comments with clauseRef like "trace.%".
+  // Render as a chat-count badge on the matching TraceLine.
+  const traceQuestions = await db
+    .select()
+    .from(clauseCommentsTable)
+    .where(
+      and(
+        eq(clauseCommentsTable.dealId, deal.id),
+        like(clauseCommentsTable.clauseRef, "trace.%"),
+      ),
+    );
+  const traceCommentCountByKey = new Map<string, number>();
+  for (const c of traceQuestions) {
+    const key = c.clauseRef.replace(/^trace\./, "");
+    traceCommentCountByKey.set(
+      key,
+      (traceCommentCountByKey.get(key) ?? 0) + 1,
+    );
+  }
+
   // Display ambiguities pull straight from the deal — these are the source
   // of truth for unresolved state, not the engine's filtered list.
   const dealAmbiguities = parseDealAmbiguities(deal);
@@ -222,6 +273,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                       step={step}
                       ackable={false}
                       ackedBy={ackByKey.get(step.key) ?? null}
+                      commentsCount={traceCommentCountByKey.get(step.key)}
                     />
                   ))}
                 </CardContent>
@@ -229,6 +281,92 @@ export async function SettlePageV2({ data, searchParams }: Props) {
             </div>
 
             <div className="lg:col-span-4 space-y-4">
+              {/* Agent signoff status */}
+              {signoff && (
+                <Card
+                  accent={
+                    signoff.status === "agreed"
+                      ? "brand"
+                      : signoff.status === "questions"
+                        ? "amber"
+                        : "sky"
+                  }
+                >
+                  <CardContent className="px-4 py-3">
+                    <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium">
+                      Agent review
+                    </div>
+                    {signoff.status === "agreed" ? (
+                      <div className="mt-1">
+                        <div className="flex items-center gap-1.5 text-[13px] text-brand-900 font-medium">
+                          <Check className="size-3.5 text-brand-700" />
+                          Signed off
+                          {signoff.byName && (
+                            <span className="font-normal text-ink-700">
+                              · {signoff.byName}
+                            </span>
+                          )}
+                        </div>
+                        {signoff.at && (
+                          <div className="text-[11px] text-ink-500 mt-0.5">
+                            {new Date(signoff.at).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        )}
+                        {signoff.text && (
+                          <p className="text-[12px] text-ink-700 mt-2 italic">
+                            “{signoff.text}”
+                          </p>
+                        )}
+                      </div>
+                    ) : signoff.status === "questions" ? (
+                      <div className="mt-1">
+                        <div className="text-[13px] text-amber-900 font-medium">
+                          Questions raised
+                          {signoff.byName && (
+                            <span className="font-normal text-ink-700">
+                              {" "}
+                              · {signoff.byName}
+                            </span>
+                          )}
+                        </div>
+                        {signoff.at && (
+                          <div className="text-[11px] text-ink-500 mt-0.5">
+                            {new Date(signoff.at).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        )}
+                        {signoff.text && (
+                          <p className="text-[12px] text-ink-700 mt-2 italic">
+                            “{signoff.text}”
+                          </p>
+                        )}
+                        {traceCommentCountByKey.size > 0 && (
+                          <p className="text-[11px] text-ink-500 mt-2">
+                            {traceCommentCountByKey.size} line
+                            {traceCommentCountByKey.size === 1 ? "" : "s"}{" "}
+                            questioned — see chat badges in the trace.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[12px] text-sky-800 mt-1">
+                        Awaiting agent review — share link generated, not yet
+                        opened.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Unresolved ambiguities */}
               {unresolved.length > 0 && (
                 <Card accent="amber">

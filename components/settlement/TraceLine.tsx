@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
@@ -113,6 +114,9 @@ type Props = {
   focused?: boolean;
   /** Walkthrough overlay only — fades to ~40% so this line reads as out-of-focus. */
   dimmed?: boolean;
+  /** Count of agent comments anchored to this line via clause_comments
+   *  (clauseRef = "trace.<step.key>"). Rendered as a small chat badge. */
+  commentsCount?: number;
 };
 
 export function TraceLine({
@@ -122,6 +126,7 @@ export function TraceLine({
   onAck,
   focused,
   dimmed,
+  commentsCount,
 }: Props) {
   const Icon = KIND_ICON[step.kind] ?? Circle;
   const flag = step.flag ? FLAG_STYLES[step.flag] : null;
@@ -177,6 +182,15 @@ export function TraceLine({
             >
               {step.flag === "ambiguity" && <AlertTriangle className="size-2.5" />}
               {flag.label}
+            </span>
+          )}
+          {commentsCount && commentsCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ring-1 ring-inset bg-sky-50 text-sky-800 ring-sky-200/80"
+              title={`${commentsCount} agent question${commentsCount === 1 ? "" : "s"}`}
+            >
+              <MessageSquare className="size-2.5" />
+              {commentsCount}
             </span>
           )}
         </div>

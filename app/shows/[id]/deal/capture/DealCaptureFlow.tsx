@@ -10,6 +10,7 @@ import { ProseColumn } from "./ProseColumn";
 import { FieldsColumn } from "./FieldsColumn";
 import { AmbiguityRail } from "./AmbiguityRail";
 import type { CaptureInitialState, ExtractionResponse } from "./types";
+import type { ClauseThreadComment } from "@/components/shared/ClauseThread";
 
 type Phase = "paste" | "extracting" | "review" | "saving" | "saved";
 
@@ -19,6 +20,9 @@ type Props = {
   artistName: string;
   agentName: string;
   showDate: string;
+  /** Agent clause comments for this deal, fetched server-side. Surfaced
+   *  inline next to the matching field in FieldsColumn. */
+  clauseComments?: Array<ClauseThreadComment & { clauseRef: string }>;
 };
 
 export function DealCaptureFlow({
@@ -27,6 +31,7 @@ export function DealCaptureFlow({
   artistName,
   agentName,
   showDate,
+  clauseComments = [],
 }: Props) {
   const router = useRouter();
   const hadInitialExtraction = initial.extraction !== null;
@@ -210,6 +215,7 @@ export function DealCaptureFlow({
                 extraction={extraction}
                 hoveredProseSpan={hoveredProseSpan}
                 onHoverField={handleHoverField}
+                clauseComments={clauseComments}
               />
             ) : (
               <div className="rounded-lg border border-dashed border-ink-200 bg-ink-50/40 flex items-center justify-center text-[12px] text-ink-500 italic">

@@ -1,14 +1,21 @@
 "use client";
 
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { ConfidenceChip, type Confidence } from "./ConfidenceChip";
 import { formatMoney } from "@/lib/format";
 import type { ExtractionResponse } from "./types";
+import {
+  ClauseThread,
+  type ClauseThreadComment,
+} from "@/components/shared/ClauseThread";
 
 type Props = {
   extraction: ExtractionResponse;
   hoveredProseSpan: string | null;
   onHoverField: (fieldKey: string | null) => void;
+  /** Agent comments to surface inline next to each clause. Read-only for Mariana. */
+  clauseComments?: Array<ClauseThreadComment & { clauseRef: string }>;
 };
 
 function FieldRow({
@@ -18,6 +25,7 @@ function FieldRow({
   confidence,
   hovered,
   onHoverField,
+  comments,
 }: {
   fieldKey: string;
   label: string;
@@ -25,6 +33,7 @@ function FieldRow({
   confidence: Confidence | undefined;
   hovered: boolean;
   onHoverField: (k: string | null) => void;
+  comments?: ClauseThreadComment[];
 }) {
   return (
     <div
@@ -32,20 +41,41 @@ function FieldRow({
       onMouseEnter={() => onHoverField(fieldKey)}
       onMouseLeave={() => onHoverField(null)}
       className={cn(
-        "flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-default",
+        "px-3 py-2 rounded-md cursor-default",
         "border border-transparent transition-colors",
         hovered ? "bg-brand-50 border-brand-200" : "hover:bg-ink-50/60",
       )}
     >
-      <div className="flex-1 min-w-0">
-        <div className="text-[11px] uppercase tracking-wider text-ink-500 font-medium">
-          {label}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] uppercase tracking-wider text-ink-500 font-medium">
+            {label}
+          </div>
+          <div className="text-[13px] text-ink-900 font-medium mt-0.5 truncate">
+            {value}
+          </div>
         </div>
-        <div className="text-[13px] text-ink-900 font-medium mt-0.5 truncate">
-          {value}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {comments && comments.length > 0 && (
+            <ClauseThread
+              clauseRef={fieldKey}
+              initialComments={comments}
+              badgeOnly
+              readOnly
+            />
+          )}
+          {confidence && <ConfidenceChip level={confidence} />}
         </div>
       </div>
-      {confidence && <ConfidenceChip level={confidence} />}
+      {comments && comments.length > 0 && (
+        <div className="mt-2">
+          <ClauseThread
+            clauseRef={fieldKey}
+            initialComments={comments}
+            readOnly
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -59,6 +89,7 @@ export function FieldsColumn({
   extraction,
   hoveredProseSpan,
   onHoverField,
+  clauseComments = [],
 }: Props) {
   const conf = extraction.fields_confidence ?? {};
   // The hovered prose span is a substring — match it back to a field key.
@@ -69,6 +100,17 @@ export function FieldsColumn({
     : null;
 
   const isHovered = (k: string) => hoveredFieldFromSpan === k;
+
+  // Bucket agent comments by their clauseRef so each FieldRow can pluck its own.
+  const commentsByRef = useMemo(() => {
+    const m = new Map<string, ClauseThreadComment[]>();
+    for (const c of clauseComments) {
+      const arr = m.get(c.clauseRef) ?? [];
+      arr.push(c);
+      m.set(c.clauseRef, arr);
+    }
+    return m;
+  }, [clauseComments]);
 
   return (
     <div className="flex flex-col h-full">
@@ -84,6 +126,7 @@ export function FieldsColumn({
             confidence={conf.deal_type as Confidence}
             hovered={isHovered("deal_type")}
             onHoverField={onHoverField}
+            comments={commentsByRef.get("deal_type")}
           />
           <FieldRow
             fieldKey="guarantee_amount"
@@ -92,6 +135,7 @@ export function FieldsColumn({
             confidence={conf.guarantee_amount as Confidence}
             hovered={isHovered("guarantee_amount")}
             onHoverField={onHoverField}
+            comments={commentsByRef.get("guarantee_amount")}
           />
           <FieldRow
             fieldKey="percentage"
@@ -100,6 +144,7 @@ export function FieldsColumn({
             confidence={conf.percentage as Confidence}
             hovered={isHovered("percentage")}
             onHoverField={onHoverField}
+            comments={commentsByRef.get("percentage")}
           />
           <FieldRow
             fieldKey="expense_cap"
@@ -108,6 +153,7 @@ export function FieldsColumn({
             confidence={conf.expense_cap as Confidence}
             hovered={isHovered("expense_cap")}
             onHoverField={onHoverField}
+            comments={commentsByRef.get("expense_cap")}
           />
           <FieldRow
             fieldKey="hospitality_cap"
@@ -116,6 +162,7 @@ export function FieldsColumn({
             confidence={conf.hospitality_cap as Confidence}
             hovered={isHovered("hospitality_cap")}
             onHoverField={onHoverField}
+            comments={commentsByRef.get("hospitality_cap")}
           />
           {extraction.bonuses?.map((b, i) => (
             <FieldRow
@@ -126,6 +173,7 @@ export function FieldsColumn({
               confidence={conf[`bonuses[${i}]`] as Confidence}
               hovered={isHovered(`bonuses[${i}]`)}
               onHoverField={onHoverField}
+              comments={commentsByRef.get(`bonuses[${i}]`)}
             />
           ))}
           {extraction.recoups?.map((r, i) => (
@@ -148,6 +196,7 @@ export function FieldsColumn({
               confidence={conf[`recoups[${i}].amount`] as Confidence}
               hovered={isHovered(`recoups[${i}]`)}
               onHoverField={onHoverField}
+              comments={commentsByRef.get(`recoups[${i}]`)}
             />
           ))}
         </div>

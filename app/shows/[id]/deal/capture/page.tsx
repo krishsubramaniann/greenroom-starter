@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { clauseComments } from "@/db/schema";
 import { getShowById } from "@/lib/queries";
 import {
   parseDealAmbiguities,
@@ -14,6 +17,7 @@ import type {
   ExtractionAmbiguity,
 } from "./types";
 import type { Deal, Bonus } from "@/db/schema";
+import type { ClauseThreadComment } from "@/components/shared/ClauseThread";
 
 function buildExternalIdFallback(showId: string, date: string) {
   // Best-effort externalId synthesis when none is stored yet.
@@ -130,6 +134,25 @@ export default async function DealCapturePage({
   const externalId =
     deal?.externalId ?? buildExternalIdFallback(id, show.date);
 
+  // Pull all clause_comments anchored to this deal so the capture flow can
+  // surface agent comments inline next to the matching clause.
+  const dealComments: Array<ClauseThreadComment & { clauseRef: string }> = deal
+    ? (
+        await db
+          .select()
+          .from(clauseComments)
+          .where(eq(clauseComments.dealId, deal.id))
+      ).map((c) => ({
+        id: c.id,
+        clauseRef: c.clauseRef,
+        actorName: c.actorName,
+        actorType: c.actorType as "user" | "agent" | "tour_manager",
+        body: c.body,
+        channel: c.channel,
+        createdAt: c.createdAt,
+      }))
+    : [];
+
   const initial: CaptureInitialState = {
     sourceProse: deal?.sourceProse ?? "",
     extraction: buildExtractionFromDeal(deal),
@@ -167,6 +190,7 @@ export default async function DealCapturePage({
         artistName={artist?.name ?? "Artist"}
         agentName={agent?.name ?? "Agent"}
         showDate={formatShowDateFull(show.date)}
+        clauseComments={dealComments}
       />
     </div>
   );
