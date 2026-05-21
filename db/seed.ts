@@ -1523,6 +1523,13 @@ async function main() {
   // Live-demo subject: a show with no deal record yet. The Loom captures
   // the deal in real time by pasting prose into /shows/[id]/deal/capture.
   // Sarah Kim @ WME is pinned as the agent above.
+  //
+  // The canonical Hollow Oak prose (the text Mariana pastes during the
+  // Loom) lives in `lib/canned/hollow-oak-extraction.json` under
+  // `source_prose`. Any change to amounts or recoup language belongs there,
+  // not here — the extracted fields, the highlighted spans, and the prose
+  // must all stay aligned or the demo's "extractor surfaces only what's in
+  // the prose" claim breaks down.
   const hollowOakShowId = "show_hollow_oak_jun";
   const hollowOakDate = "2026-06-19";
   const hollowOakCreated = new Date("2026-04-15T14:00:00-06:00");

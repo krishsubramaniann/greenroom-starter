@@ -1,0 +1,99 @@
+{
+  "_meta": {
+    "description": "Canned AI extraction response for the Hollow Oak June 19, 2026 deal email. Served by /api/extract-deal when the pasted prose mentions 'Hollow Oak'. The fixture in db/seed.ts deliberately has no deal record — Mariana captures it live in the Loom by pasting the source_prose below into /shows/show_hollow_oak_jun/deal/capture.",
+    "source_email_from": "Sarah Kim <skim@wme.com>",
+    "source_email_date": "2026-05-10",
+    "produced_at": "2026-05-10T11:14:00-06:00",
+    "demo_use": "Loom: paste the source_prose into the capture flow, click Extract, this response renders after a 1500ms loading state."
+  },
+  "source_prose": "Hi Mariana,\n\nConfirming Hollow Oak for 6/19.\n\nDeal is $4,000 vs 75% of net after expenses. Expenses capped at $2,000, marketing recoup of $750 against gross. Hospitality cap $400. Performance bonuses per the deal memo (see email thread).\n\nBest,\nSarah",
+
+  "deal_type": "vs",
+  "guarantee_amount": 4000,
+  "percentage": 0.75,
+  "percentage_basis": "net",
+  "expense_cap": 2000,
+  "hospitality_cap": 400,
+
+  "bonuses": [],
+
+  "recoups": [
+    {
+      "category": "marketing",
+      "amount": 750,
+      "label": "Marketing recoup",
+      "position": "ambiguous",
+      "prose_span": "marketing recoup of $750 against gross"
+    }
+  ],
+
+  "comp_rules": null,
+
+  "ambiguities": [
+    {
+      "id": "recoup_position_marketing_0",
+      "field": "recoups[0].position",
+      "prose_span": "Expenses capped at $2,000, marketing recoup of $750 against gross",
+      "description": "The $750 marketing recoup could be positioned off-gross (in addition to the $2,000 expense cap) or treated as inside the $2,000 cap. The two readings produce different settlement totals at ~$560 apart.",
+      "candidate_readings": [
+        {
+          "label": "Off gross (in addition to cap)",
+          "interpretation": "The $750 is deducted from gross BEFORE fees and expenses. The $2,000 cap applies separately to other operational expenses.",
+          "structured_value": "off_gross",
+          "estimated_impact": "Reduces artist payout. At ~$18k gross, this reading yields roughly $560 less to the artist than the alternative."
+        },
+        {
+          "label": "Inside cap",
+          "interpretation": "The $750 marketing recoup counts as part of the $2,000 expense cap. The venue absorbs any operational+marketing spend above $2,000.",
+          "structured_value": "inside_cap",
+          "estimated_impact": "Higher artist payout by roughly $560 at typical show gross."
+        }
+      ],
+      "suggested_clarification": "Quick clarification on the deal: is the $750 marketing recoup inside the $2,000 expense cap, or in addition to it? Want to lock this in before we settle."
+    },
+    {
+      "id": "bonus_reference_unspecified_0",
+      "field": "bonuses",
+      "prose_span": "Performance bonuses per the deal memo (see email thread)",
+      "description": "The deal email references performance bonuses but doesn't specify them inline. We need the bonus structure (gross threshold? attendance threshold? sellout?) before settlement, otherwise the engine can't evaluate them.",
+      "candidate_readings": [
+        {
+          "label": "No bonuses (assume omission)",
+          "interpretation": "Treat the reference as boilerplate; no structured bonuses apply to this show.",
+          "structured_value": "no_bonuses",
+          "estimated_impact": "Conservative. Risks missing a bonus the agent expects to fire."
+        },
+        {
+          "label": "Bonuses exist — ask for spec",
+          "interpretation": "Reply asking Sarah to forward the deal memo or paste the bonus structure inline so we can capture it.",
+          "structured_value": "request_spec",
+          "estimated_impact": "Unknown until specified. Could be material."
+        }
+      ],
+      "suggested_clarification": "Quick clarification: can you forward the deal memo with the performance bonus structure? Want to make sure we have those captured before settlement."
+    }
+  ],
+
+  "fields_confidence": {
+    "deal_type": "high",
+    "guarantee_amount": "high",
+    "percentage": "high",
+    "percentage_basis": "high",
+    "expense_cap": "high",
+    "hospitality_cap": "high",
+    "recoups[0].amount": "high",
+    "recoups[0].position": "low",
+    "bonuses": "low"
+  },
+
+  "prose_spans": {
+    "deal_type": "$4,000 vs 75% of net after expenses",
+    "guarantee_amount": "$4,000",
+    "percentage": "75%",
+    "percentage_basis": "net",
+    "expense_cap": "Expenses capped at $2,000",
+    "hospitality_cap": "Hospitality cap $400",
+    "recoups[0]": "marketing recoup of $750 against gross",
+    "bonuses": "Performance bonuses per the deal memo (see email thread)"
+  }
+}

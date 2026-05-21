@@ -25,6 +25,32 @@ type Props = {
   clauseComments?: Array<ClauseThreadComment & { clauseRef: string }>;
 };
 
+/**
+ * Per-show placeholder text shown in the empty paste textarea. Hollow Oak
+ * is the demo's live-capture subject — its placeholder mirrors the prose
+ * lib/canned/hollow-oak-extraction.json was authored against, so spans and
+ * amounts the extractor reports back actually appear in the pasted text.
+ */
+function placeholderForArtist(
+  artistName: string,
+  agentName: string,
+): string | undefined {
+  if (artistName.toLowerCase().includes("hollow oak")) {
+    return [
+      "Hi Mariana,",
+      "",
+      "Confirming Hollow Oak for 6/19.",
+      "",
+      "Deal is $4,000 vs 75% of net after expenses. Expenses capped at $2,000, marketing recoup of $750 against gross. Hospitality cap $400. Performance bonuses per the deal memo (see email thread).",
+      "",
+      "Best,",
+      agentName.split(" ")[0] ?? agentName,
+    ].join("\n");
+  }
+  // Coastal Spell + everything else fall back to the column's generic skeleton.
+  return undefined;
+}
+
 export function DealCaptureFlow({
   initial,
   showId,
@@ -214,6 +240,7 @@ export function DealCaptureFlow({
               phase={phase}
               onExtract={handleExtract}
               onRecapture={handleRecapture}
+              placeholder={placeholderForArtist(artistName, agentName)}
             />
             {extraction ? (
               <FieldsColumn

@@ -16,15 +16,18 @@ type Props = {
   phase: "paste" | "extracting" | "review" | "saving" | "saved";
   onExtract: () => void;
   onRecapture: () => void;
+  /** Placeholder prose shown in the empty textarea. Defaults to a generic
+   *  hint; pass an artist-specific string for richer demos. */
+  placeholder?: string;
 };
 
-const COASTAL_PLACEHOLDER = `Hi Mariana,
+const DEFAULT_PLACEHOLDER = `Hi Mariana,
 
-Confirming Coastal Spell for 3/14.
+Confirming <artist> for <date>.
 
-Deal is $5,000 vs 80% of net after expenses. Expenses capped at $2,500, marketing recoup of $900 against gross. Hospitality cap $500. +$1k bonus over $25k gross.
+Deal is $<guarantee> vs <pct>% of net after expenses. Expenses capped at $<cap>, marketing recoup of $<x> against gross. Hospitality cap $<h>. <bonuses>.
 
-Best, Andrea`;
+Best, <agent>`;
 
 /**
  * Build a list of [start, end, fieldKey | null] segments from the prose and
@@ -73,6 +76,7 @@ export function ProseColumn({
   phase,
   onExtract,
   onRecapture,
+  placeholder = DEFAULT_PLACEHOLDER,
 }: Props) {
   const isPaste = phase === "paste";
   const isExtracting = phase === "extracting";
@@ -87,7 +91,7 @@ export function ProseColumn({
         <textarea
           value={prose}
           onChange={(e) => onProseChange(e.target.value)}
-          placeholder={COASTAL_PLACEHOLDER}
+          placeholder={placeholder}
           disabled={isExtracting}
           className={cn(
             "flex-1 w-full p-4 rounded-lg border border-ink-200 bg-white",
