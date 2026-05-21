@@ -74,9 +74,21 @@ export type RecoupPosition =
   | "off_artist_share"
   | "ambiguous";
 
-/** Who or what marked the resolution. `agent_simulated` is a demo affordance
- *  — distinguishes a "Simulate agent reply" click from a real inbound reply. */
-export type ResolvedBy = "agent" | "tour_manager" | "user" | "agent_simulated";
+/** Who or what marked the resolution.
+ *  - `user`                       — Mariana locked a reading in
+ *  - `agent`                      — real inbound reply (future)
+ *  - `tour_manager`               — TM resolved during walkthrough
+ *  - `agent_simulated`            — demo: single-click resolve as-if agent
+ *  - `agent_confirmed_via_email`  — demo: Mariana accepted a simulated
+ *                                   agent reply (two-step flow). The
+ *                                   acting human is Mariana; attribution
+ *                                   references the underlying reply id. */
+export type ResolvedBy =
+  | "agent"
+  | "tour_manager"
+  | "user"
+  | "agent_simulated"
+  | "agent_confirmed_via_email";
 
 export type RecoupV2 = {
   id: string;

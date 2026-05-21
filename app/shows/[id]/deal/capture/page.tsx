@@ -63,19 +63,38 @@ function buildExtractionFromDeal(deal: Deal | null): ExtractionResponse | null {
     description: a.estimated_impact_usd
       ? `Resolved positioning — ~$${a.estimated_impact_usd} impact at typical gross.`
       : "Resolved positioning.",
-    candidate_readings: a.candidate_readings.map((value) => ({
-      label: value === "inside_cap" ? "Inside cap" : value === "off_gross" ? "Off gross" : value,
-      interpretation:
-        value === "inside_cap"
-          ? "Counts toward the expense cap."
-          : value === "off_gross"
-            ? "Deducted from gross in addition to the cap."
-            : value,
-      structured_value: value,
-      estimated_impact: a.estimated_impact_usd
-        ? `~$${a.estimated_impact_usd} impact`
-        : "—",
-    })),
+    // candidate_readings is stored on the deal in either shape:
+    //   - extraction-style: full {label, interpretation, structured_value,
+    //     estimated_impact} objects (what save-deal persists today)
+    //   - legacy: bare strings (engine type's nominal contract)
+    // Detect the shape and pass through objects as-is; reshape strings.
+    candidate_readings: (a.candidate_readings as unknown as Array<
+      | string
+      | {
+          label: string;
+          interpretation: string;
+          structured_value: string;
+          estimated_impact: string;
+        }
+    >).map((value) => {
+      if (typeof value === "object" && value !== null && "structured_value" in value) {
+        return value;
+      }
+      const sv = value as string;
+      return {
+        label: sv === "inside_cap" ? "Inside cap" : sv === "off_gross" ? "Off gross" : sv,
+        interpretation:
+          sv === "inside_cap"
+            ? "Counts toward the expense cap."
+            : sv === "off_gross"
+              ? "Deducted from gross in addition to the cap."
+              : sv,
+        structured_value: sv,
+        estimated_impact: a.estimated_impact_usd
+          ? `~$${a.estimated_impact_usd} impact`
+          : "—",
+      };
+    }),
     suggested_clarification: "",
     resolution: a.resolution,
     resolved_at: a.resolved_at,
@@ -129,7 +148,7 @@ export default async function DealCapturePage({
   const data = await getShowById(id);
   if (!data) notFound();
 
-  const { show, artist, agent, deal } = data;
+  const { show, artist, agent, agency, deal } = data;
 
   const externalId =
     deal?.externalId ?? buildExternalIdFallback(id, show.date);
@@ -189,6 +208,7 @@ export default async function DealCapturePage({
         showId={id}
         artistName={artist?.name ?? "Artist"}
         agentName={agent?.name ?? "Agent"}
+        agencyName={agency?.name ?? null}
         showDate={formatShowDateFull(show.date)}
         clauseComments={dealComments}
       />

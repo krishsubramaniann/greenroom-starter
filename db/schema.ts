@@ -378,6 +378,7 @@ export const activityEvents = sqliteTable("activity_events", {
       "confirmation_sent",
       "agent_opened",
       "agent_commented",
+      "agent_replied",
       "ambiguity_resolved",
       "deal_locked",
       "deal_revised",

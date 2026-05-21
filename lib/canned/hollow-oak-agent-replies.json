@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "description": "Canned agent reply text for the Hollow Oak deal capture demo. Keyed by [ambiguityId][selectedReading]. The /api/simulate-agent-reply route looks up a reply here when Mariana clicks [Simulate agent reply] on an ambiguity card; the reply is shown in the card as an email-quote artifact so she explicitly accepts before the resolution is committed. Match the tone of prompts/clarification.md — short, collegial, Sarah Kim's voice as captured in seed data ('reads settlements carefully but fairly').",
+    "demo_use": "Loom: paste Hollow Oak prose, click Extract, click Simulate agent reply on either ambiguity card → reply appears."
+  },
+  "recoup_position_marketing_0": {
+    "off_gross": {
+      "agent_name": "Sarah Kim",
+      "agency": "WME",
+      "reply_text": "Hey Mariana, in addition to the cap — $750 off gross before the 75% calc. The intent was always for marketing to come off the top so the artist share reflects the real net. Let me know if you need anything else.\n\n— Sarah"
+    },
+    "inside_cap": {
+      "agent_name": "Sarah Kim",
+      "agency": "WME",
+      "reply_text": "Hey Mariana, inside the $2k cap is right — marketing was meant to count toward the cap, not in addition to it. Single cap on all venue-charged costs, the way we usually run it.\n\n— Sarah"
+    }
+  },
+  "bonus_reference_unspecified_0": {
+    "no_bonuses": {
+      "agent_name": "Sarah Kim",
+      "agency": "WME",
+      "reply_text": "Hey Mariana, no bonuses on this one — the deal memo reference was boilerplate from our template. Settlement should run without any bonus tier.\n\n— Sarah"
+    },
+    "request_spec": {
+      "agent_name": "Sarah Kim",
+      "agency": "WME",
+      "reply_text": "Hey Mariana, good catch. I'll dig up the deal memo and forward the bonus structure today — there's a gross threshold in there we'll want captured before settlement. Stand by.\n\n— Sarah"
+    }
+  }
+}

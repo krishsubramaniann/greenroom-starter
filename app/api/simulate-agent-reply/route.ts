@@ -1,39 +1,72 @@
 /**
  * POST /api/simulate-agent-reply
  *
- * Demo button that fast-forwards through the agent-reply lifecycle:
- *   1. Marks the matching deal ambiguity resolved
- *   2. Updates the matching recoup's position from "ambiguous" → resolution
- *   3. Writes a clause_comments row capturing the agent's reply
- *   4. Writes two activity_events: agent_commented + ambiguity_resolved
+ * First half of the two-step "Simulate agent reply" demo affordance.
+ * Generates Sarah's reply for a (deal, ambiguity, selectedReading) tuple
+ * without marking the ambiguity resolved. Mariana sees the reply rendered
+ * as an email quote in the card, then either clicks [Accept Sarah's reading]
+ * (which calls /api/resolve-ambiguity with resolvedBy="agent_confirmed_via_email")
+ * or [Push back].
  *
- * Used by the AmbiguityRail's [Simulate agent reply] affordance during the
- * Loom — in a real product this state would arrive via inbound email parsing
- * or the agent clicking through the magic-link viewer.
+ * Demo-mode: reply text comes from lib/canned/hollow-oak-agent-replies.json,
+ * keyed by [ambiguityId][selectedReading]. If the (ambiguityId, reading)
+ * pair has no canned reply, returns 422 so the UI can fall back gracefully.
+ *
+ * Side effects:
+ *   1. clause_comments row (channel: email_reply, body: reply_text,
+ *      actor: "<agent_name> (simulated)") — the reply is data, kept after
+ *      the demo for the agent magic-link + Mariana's per-clause threads.
+ *   2. activity_events row (eventType: agent_replied) — the reviewer-visible
+ *      record that the reply came through the simulate affordance.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { db } from "@/db";
 import {
   deals,
-  clauseComments,
-  activityEvents,
   shows,
   artists,
+  agents,
+  clauseComments,
+  activityEvents,
 } from "@/db/schema";
-import { randomUUID } from "node:crypto";
-import type { RecoupV2, Ambiguity } from "@/lib/dealMathV2";
 
 type Body = {
   dealId?: string;
   ambiguityId?: string;
-  resolution?: string;
-  agentName?: string;
-  clauseRef?: string;
-  /** Synthetic body for the agent's "email reply". Optional. */
-  replyBody?: string;
+  selectedReading?: string;
 };
+
+type CannedReply = {
+  agent_name: string;
+  agency: string;
+  reply_text: string;
+};
+
+const CANNED_PATH = join(
+  process.cwd(),
+  "lib/canned/hollow-oak-agent-replies.json",
+);
+
+async function lookupCannedReply(
+  ambiguityId: string,
+  selectedReading: string,
+): Promise<CannedReply | null> {
+  try {
+    const raw = await readFile(CANNED_PATH, "utf-8");
+    const data = JSON.parse(raw) as Record<
+      string,
+      Record<string, CannedReply>
+    >;
+    return data[ambiguityId]?.[selectedReading] ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   let body: Body;
@@ -43,12 +76,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { dealId, ambiguityId, resolution, agentName, clauseRef } = body;
-  if (!dealId || !ambiguityId || !resolution || !agentName || !clauseRef) {
+  const { dealId, ambiguityId, selectedReading } = body;
+  if (!dealId || !ambiguityId || !selectedReading) {
     return NextResponse.json(
       {
         error:
-          "Body must include dealId, ambiguityId, resolution, agentName, clauseRef.",
+          "Body must include dealId, ambiguityId, and selectedReading.",
       },
       { status: 400 },
     );
@@ -59,120 +92,86 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 
-  // ---- mutate ambiguities ----
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const ambiguities: Ambiguity[] = deal.ambiguitiesJson
-    ? (JSON.parse(deal.ambiguitiesJson) as Ambiguity[])
-    : [];
-  const ambiguity = ambiguities.find((a) => a.id === ambiguityId);
-  if (!ambiguity) {
+  const canned = await lookupCannedReply(ambiguityId, selectedReading);
+  if (!canned) {
     return NextResponse.json(
-      { error: `Ambiguity ${ambiguityId} not on this deal` },
-      { status: 404 },
+      {
+        error: `No canned reply for ${ambiguityId} × ${selectedReading}.`,
+      },
+      { status: 422 },
     );
   }
-  ambiguity.resolution = resolution;
-  ambiguity.resolved_at = nowIso;
-  ambiguity.resolved_by = "agent";
 
-  // ---- mutate recoups ----
-  const recoups: RecoupV2[] = deal.recoupsJson
-    ? (JSON.parse(deal.recoupsJson) as RecoupV2[])
+  // Look up agent identity via the resource chain. The canned file's
+  // agent_name is the source of truth for the demo, but we'll fall back
+  // to the actual seeded agent if it diverges.
+  const [show] = await db.select().from(shows).where(eq(shows.id, deal.showId));
+  const [artist] = show
+    ? await db.select().from(artists).where(eq(artists.id, show.artistId))
     : [];
-  // Resolution targets a recoup by ambiguity.field (e.g. "recoups[0].position").
-  // For the demo we match the first recoup whose position is "ambiguous";
-  // a future version would parse the field path properly.
-  const recoupMatch = recoups.find((r) => r.position === "ambiguous");
-  if (recoupMatch) {
-    recoupMatch.position = resolution as RecoupV2["position"];
-    recoupMatch.position_resolved_by = "agent";
-    recoupMatch.position_resolved_at = nowIso;
-    if (recoupMatch.status === "disputed") recoupMatch.status = "agreed";
-  }
+  const [agent] =
+    artist?.agentId != null
+      ? await db.select().from(agents).where(eq(agents.id, artist.agentId))
+      : [];
+  const agentName = canned.agent_name ?? agent?.name ?? "Agent";
+  const actorName = `${agentName} (simulated)`;
+  const agencyName = canned.agency ?? "";
 
-  // ---- write back the deal ----
-  await db
-    .update(deals)
-    .set({
-      ambiguitiesJson: JSON.stringify(ambiguities),
-      recoupsJson: JSON.stringify(recoups),
-    })
-    .where(eq(deals.id, dealId));
+  const now = new Date();
 
-  // ---- look up show + artist for activity context ----
-  const [showRow] = await db
-    .select({ id: shows.id, artistId: shows.artistId })
-    .from(shows)
-    .where(eq(shows.id, deal.showId));
-  const artistName = showRow
-    ? (
-        await db
-          .select({ name: artists.name })
-          .from(artists)
-          .where(eq(artists.id, showRow.artistId))
-      )[0]?.name
-    : undefined;
+  // Field of the ambiguity → clauseRef on the clause_comment.
+  const ambiguities = deal.ambiguitiesJson
+    ? (JSON.parse(deal.ambiguitiesJson) as Array<{
+        id: string;
+        field?: string;
+      }>)
+    : [];
+  const clauseRef =
+    ambiguities.find((a) => a.id === ambiguityId)?.field ?? ambiguityId;
 
-  const replyBody =
-    body.replyBody ??
-    `We read this as ${resolution.replace(/_/g, " ")}. That was always the intent — single cap on all venue-charged costs.`;
-
-  // ---- clause comment ----
+  const replyId = `cc_${randomUUID()}`;
   await db.insert(clauseComments).values({
-    id: `cc_${randomUUID()}`,
+    id: replyId,
     dealId,
     clauseRef,
     actorType: "agent",
-    actorName: agentName,
-    body: replyBody,
+    actorName,
+    body: canned.reply_text,
     channel: "email_reply",
-    resolvedAt: now,
     createdAt: now,
   });
 
-  // ---- activity events (agent_commented + ambiguity_resolved) ----
-  await db.insert(activityEvents).values([
-    {
-      id: `ae_${randomUUID()}`,
-      dealId: deal.externalId,
-      showId: deal.showId,
-      eventType: "agent_commented",
-      actorType: "agent",
-      actorName: agentName,
-      actorRole: "Agent",
-      summary: `${agentName} replied: "${replyBody.slice(0, 80)}${replyBody.length > 80 ? "…" : ""}"`,
-      payloadJson: JSON.stringify({
-        clause_ref: clauseRef,
-        body: replyBody,
-        channel: "email_reply",
-        artist_name: artistName,
-      }),
-      occurredAt: now,
-    },
-    {
-      id: `ae_${randomUUID()}`,
-      dealId: deal.externalId,
-      showId: deal.showId,
-      eventType: "ambiguity_resolved",
-      actorType: "user",
-      actorName: "Mariana Reyes",
-      actorRole: "Booker",
-      summary: `Resolved ambiguity "${ambiguity.field}" → ${resolution} (confirmed by ${agentName})`,
-      payloadJson: JSON.stringify({
-        ambiguity_id: ambiguityId,
-        resolution,
-        resolved_with_agent: true,
-      }),
-      occurredAt: now,
-    },
-  ]);
+  await db.insert(activityEvents).values({
+    id: `ae_${randomUUID()}`,
+    dealId: deal.externalId,
+    showId: deal.showId,
+    eventType: "agent_replied",
+    actorType: "agent",
+    actorName,
+    actorRole: agencyName ? `Agent (${agencyName})` : "Agent",
+    summary: `${actorName} replied: "${canned.reply_text
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80)}${canned.reply_text.length > 80 ? "…" : ""}"`,
+    payloadJson: JSON.stringify({
+      ambiguity_id: ambiguityId,
+      reading: selectedReading,
+      reply_text: canned.reply_text,
+      reply_id: replyId,
+      surface: "deal_capture",
+    }),
+    occurredAt: now,
+  });
 
   return NextResponse.json({
     ok: true,
-    updatedDeal: {
-      ambiguities,
-      recoups,
+    reply: {
+      id: replyId,
+      text: canned.reply_text,
+      agentName,
+      agency: agencyName,
+      actorName,
+      timestamp: now.toISOString(),
     },
   });
 }

@@ -43,12 +43,18 @@ type Body = {
   resolvedBy?: ResolvedBy;
   /** Optional override of the auto-resolved agent name. */
   agentName?: string;
+  /** Set when resolvedBy="agent_confirmed_via_email" — the clause_comments
+   *  row id of the simulated agent reply Mariana is accepting. Recorded in
+   *  the activity event payload for traceability. */
+  confirmedAgainstReplyId?: string;
 };
 
 const ACTOR_ROLE: Record<ResolvedBy, string> = {
   user: "Booker",
   agent: "Agent",
   agent_simulated: "Agent (simulated)",
+  // Mariana is the acting human, but the resolution rests on the agent's reply.
+  agent_confirmed_via_email: "Booker",
   tour_manager: "TM",
 };
 
@@ -56,6 +62,7 @@ const ACTOR_TYPE_FOR_EVENT: Record<ResolvedBy, "user" | "agent" | "tour_manager"
   user: "user",
   agent: "agent",
   agent_simulated: "agent",
+  agent_confirmed_via_email: "user",
   tour_manager: "tour_manager",
 };
 
@@ -150,21 +157,23 @@ export async function POST(req: NextRequest) {
       ? reading
       : (reading as { label?: string } | undefined)?.label ?? resolvedValue;
 
-  // --- For agent_simulated: write a synthetic clause_comments row ---
+  // --- Actor attribution ---
   const actorTypeForEvent = ACTOR_TYPE_FOR_EVENT[resolvedBy];
   const actorRole = ACTOR_ROLE[resolvedBy];
   const actorName =
     resolvedBy === "agent_simulated"
       ? `${resolvedAgentName} (simulated)`
-      : resolvedBy === "user"
+      : resolvedBy === "user" || resolvedBy === "agent_confirmed_via_email"
         ? "Mariana Reyes"
         : resolvedAgentName;
 
+  // --- agent_simulated: write a synthetic clause_comments row inline.
+  //     (The two-step agent_confirmed_via_email flow already wrote the
+  //     reply when /api/simulate-agent-reply ran; we don't write a
+  //     second comment here.) ---
   if (resolvedBy === "agent_simulated") {
     const replyBody = `We read this as ${resolvedValue.replace(/_/g, " ")}. ${
-      readingLabel
-        ? `(${readingLabel})`
-        : ""
+      readingLabel ? `(${readingLabel})` : ""
     }`.trim();
     await db.insert(clauseComments).values({
       id: `cc_${randomUUID()}`,
@@ -180,6 +189,13 @@ export async function POST(req: NextRequest) {
   }
 
   // --- ambiguity_resolved activity event ---
+  // For agent_confirmed_via_email, the summary names both sides so the
+  // log reads honestly: Mariana acted on Sarah's reading.
+  const summary =
+    resolvedBy === "agent_confirmed_via_email"
+      ? `${actorName} accepted ${resolvedAgentName}'s reading: ${readingLabel}`
+      : `${actorName} resolved ${target.field} → ${readingLabel}`;
+
   await db.insert(activityEvents).values({
     id: `ae_${randomUUID()}`,
     dealId: deal.externalId,
@@ -188,12 +204,13 @@ export async function POST(req: NextRequest) {
     actorType: actorTypeForEvent,
     actorName,
     actorRole,
-    summary: `${actorName} resolved ${target.field} → ${readingLabel}`,
+    summary,
     payloadJson: JSON.stringify({
       ambiguity_id: ambiguityId,
       resolved_value: resolvedValue,
       reading_label: readingLabel,
       resolved_by: resolvedBy,
+      confirmed_against_reply_id: body.confirmedAgainstReplyId ?? null,
       surface: "deal_capture",
     }),
     occurredAt: now,

@@ -19,6 +19,7 @@ type Props = {
   showId: string;
   artistName: string;
   agentName: string;
+  agencyName?: string | null;
   showDate: string;
   /** Agent clause comments for this deal, fetched server-side. Surfaced
    *  inline next to the matching field in FieldsColumn. */
@@ -56,6 +57,7 @@ export function DealCaptureFlow({
   showId,
   artistName,
   agentName,
+  agencyName = null,
   showDate,
   clauseComments = [],
 }: Props) {
@@ -153,15 +155,52 @@ export function DealCaptureFlow({
     return saved?.dealId ?? null;
   }
 
+  /** Step 1 of the agent-reply flow: get Sarah's canned reply for the
+   *  selected reading. Server writes an agent_replied activity event +
+   *  clause_comment but does NOT mark the ambiguity resolved yet — Mariana
+   *  must explicitly Accept (see handleAcceptReading). */
   async function handleSimulateAgent(
     ambiguityId: string,
-    resolution: string,
+    selectedReading: string,
   ) {
-    if (!extraction) return;
+    if (!extraction) return null;
     setError(null);
 
-    // Optimistic local apply so the card updates instantly while the server
-    // round-trip runs. Rolled back below if the persist fails.
+    const dealId = await persistDealIfNeeded();
+    if (!dealId) {
+      setError("Could not persist the deal — try again.");
+      return null;
+    }
+
+    const res = await fetch("/api/simulate-agent-reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dealId,
+        ambiguityId,
+        selectedReading,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? `Simulate failed: ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    return data.reply ?? null;
+  }
+
+  /** Step 2 of the agent-reply flow: Mariana clicked [Accept Sarah's
+   *  reading]. Resolves the ambiguity with the reply id as the anchor.
+   *  Optimistic local apply with rollback on server error. */
+  async function handleAcceptReading(
+    ambiguityId: string,
+    selectedReading: string,
+    replyId: string,
+  ) {
+    if (!extraction || !currentDealId) return;
+    setError(null);
+
     const previousExtraction = extraction;
     const previousResolutions = resolutions;
     setExtraction((prev) =>
@@ -172,35 +211,26 @@ export function DealCaptureFlow({
               a.id === ambiguityId
                 ? {
                     ...a,
-                    resolution,
+                    resolution: selectedReading,
                     resolved_at: new Date().toISOString(),
-                    resolved_by: "agent_simulated",
+                    resolved_by: "agent_confirmed_via_email",
                   }
                 : a,
             ),
           }
         : prev,
     );
-    handleLocalResolve(ambiguityId, resolution);
-
-    // Lazy-save the deal if we don't have one yet — required so the server
-    // can persist the resolution against a real row.
-    const dealId = await persistDealIfNeeded();
-    if (!dealId) {
-      setExtraction(previousExtraction);
-      setResolutions(previousResolutions);
-      setError("Could not persist the deal — try again.");
-      return;
-    }
+    handleLocalResolve(ambiguityId, selectedReading);
 
     const res = await fetch("/api/resolve-ambiguity", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        dealId,
+        dealId: currentDealId,
         ambiguityId,
-        resolvedValue: resolution,
-        resolvedBy: "agent_simulated",
+        resolvedValue: selectedReading,
+        resolvedBy: "agent_confirmed_via_email",
+        confirmedAgainstReplyId: replyId,
         agentName,
       }),
     });
@@ -208,12 +238,9 @@ export function DealCaptureFlow({
       const data = await res.json().catch(() => ({}));
       setExtraction(previousExtraction);
       setResolutions(previousResolutions);
-      setError(data.error ?? `Simulate failed: ${res.status}`);
+      setError(data.error ?? `Accept failed: ${res.status}`);
       return;
     }
-
-    // Mirror the persisted state back so resolved_by/resolved_at match what
-    // the server wrote (timestamps converge with the activity event).
     const data = await res.json();
     setExtraction((prev) =>
       prev
@@ -327,6 +354,7 @@ export function DealCaptureFlow({
         <AmbiguityRail
           ambiguities={extraction.ambiguities}
           agentName={agentName}
+          agencyName={agencyName}
           artistName={artistName}
           showDate={showDate}
           dealId={initial.dealId}
@@ -335,6 +363,7 @@ export function DealCaptureFlow({
           resolutions={resolutions}
           onLocalResolve={handleLocalResolve}
           onSimulateAgent={handleSimulateAgent}
+          onAcceptReading={handleAcceptReading}
         />
       )}
 
