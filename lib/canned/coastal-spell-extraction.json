@@ -1,0 +1,86 @@
+{
+  "_meta": {
+    "description": "Canned AI extraction response for the Coastal Spell March 14, 2025 deal email. Served by /api/extract-deal when running in demo mode (no ANTHROPIC_API_KEY set, or when this specific deal email is detected). Mirrors the shape produced by the extraction prompt at prompts/extraction.md.",
+    "source_email_from": "Andrea Pelletier <apelletier@wme.com>",
+    "source_email_date": "2024-12-12",
+    "produced_at": "2024-12-12T15:42:00-06:00",
+    "demo_use": "Loom: paste the source_prose into the capture flow, click Extract, this response renders after a 1500ms loading state"
+  },
+  "source_prose": "Hi Mariana,\n\nConfirming Coastal Spell for 3/14.\n\nDeal is $5,000 vs 80% of net after expenses. Expenses capped at $2,500, marketing recoup of $900 against gross. Hospitality cap $500. +$1k bonus over $25k gross.\n\nBest, Andrea",
+
+  "deal_type": "vs",
+  "guarantee_amount": 5000,
+  "percentage": 0.80,
+  "percentage_basis": "net",
+  "expense_cap": 2500,
+  "hospitality_cap": 500,
+
+  "bonuses": [
+    {
+      "type": "gross_threshold",
+      "label": "+$1,000 if gross > $25,000",
+      "threshold": 25000,
+      "amount": 1000,
+      "stacks": false
+    }
+  ],
+
+  "recoups": [
+    {
+      "category": "marketing",
+      "amount": 900,
+      "label": "Marketing recoup",
+      "position": "ambiguous",
+      "prose_span": "marketing recoup of $900 against gross"
+    }
+  ],
+
+  "comp_rules": null,
+
+  "ambiguities": [
+    {
+      "id": "recoup_position_marketing_0",
+      "field": "recoups[0].position",
+      "prose_span": "Expenses capped at $2,500, marketing recoup of $900 against gross",
+      "description": "The $900 marketing recoup could be positioned off-gross (in addition to the $2,500 expense cap) or treated as inside the $2,500 cap. The two readings produce different settlement totals at ~$720 apart.",
+      "candidate_readings": [
+        {
+          "label": "Off gross (in addition to cap)",
+          "interpretation": "The $900 is deducted from gross BEFORE fees and expenses. The $2,500 cap applies separately to other operational expenses.",
+          "structured_value": "off_gross",
+          "estimated_impact": "Reduces artist payout. At ~$20k gross, this reading yields roughly $720 less to the artist than the alternative."
+        },
+        {
+          "label": "Inside cap",
+          "interpretation": "The $900 marketing recoup counts as part of the $2,500 expense cap. The venue absorbs any operational+marketing spend above $2,500.",
+          "structured_value": "inside_cap",
+          "estimated_impact": "Higher artist payout by roughly $720 at typical show gross."
+        }
+      ],
+      "suggested_clarification": "Quick clarification on the deal: is the $900 marketing recoup inside the $2,500 expense cap, or in addition to it? Want to lock this in before we settle."
+    }
+  ],
+
+  "fields_confidence": {
+    "deal_type": "high",
+    "guarantee_amount": "high",
+    "percentage": "high",
+    "percentage_basis": "high",
+    "expense_cap": "high",
+    "hospitality_cap": "high",
+    "bonuses[0]": "high",
+    "recoups[0].amount": "high",
+    "recoups[0].position": "low"
+  },
+
+  "prose_spans": {
+    "deal_type": "$5,000 vs 80% of net after expenses",
+    "guarantee_amount": "$5,000",
+    "percentage": "80%",
+    "percentage_basis": "net",
+    "expense_cap": "Expenses capped at $2,500",
+    "hospitality_cap": "Hospitality cap $500",
+    "bonuses[0]": "+$1k bonus over $25k gross",
+    "recoups[0]": "marketing recoup of $900 against gross"
+  }
+}
