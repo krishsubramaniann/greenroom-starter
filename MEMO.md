@@ -107,19 +107,21 @@ Seven design choices, each a bet:
 
 ## What I'd ship next, in order
 
-1. **Backfill historical deals through the extraction pass.** Once the new flow works, run it over the 537 past deals so the reporting page can speak in structured terms (margin variance, dispute root cause, agency-level signal). This unblocks Marcus's predicted-vs-actual reconciliation ask.
+1. **Dispute resolution UI for Mariana's side.** The prototype ships with the dispute-capture affordances wired (TM can flag at walkthrough, agent can flag on artifact, both write structured `clause_comment` + `activity_event` rows with full provenance) but **no Mariana-side resolution panel.** v1.5 adds the per-line dispute panel with three response actions (provide evidence with inline source viewer / accept and revise / negotiate via comment thread), settlement revision versioning that preserves history, and a GM re-approval flow for revisions. This closes the unhappy path that the rest of the slice opens up. Full design in `PRD.md` § Dispute resolution. Highest follow-on priority because *some* disputes will always slip through capture (~10–20% per Sarah Kim's data), and without a resolution UI they fall back to email — defeating the audit-trail thesis.
 
-2. **Real email integration.** Deal-anchored reply addresses with Mailgun inbound; Gmail OAuth for inbox sync with AI classification for stray emails. Closes the "email is the agent's tool of choice" loop properly.
+2. **Backfill historical deals through the extraction pass.** Once the new flow works, run it over the 537 past deals so the reporting page can speak in structured terms (margin variance, dispute root cause, agency-level signal). This unblocks Marcus's predicted-vs-actual reconciliation ask.
 
-3. **Real OCR for production manager receipts.** Tap a photo, structured expense entry confirmed. Closes the manual-entry friction.
+3. **Real email integration.** Deal-anchored reply addresses with Mailgun inbound; Gmail OAuth for inbox sync with AI classification for stray emails. Closes the "email is the agent's tool of choice" loop properly.
 
-4. **Per-agency settlement templates.** Configurable template applied to the same trace data — solves the "Tom Neary wants his own template" problem without rebuilding the engine.
+4. **Real OCR for production manager receipts.** Tap a photo, structured expense entry confirmed. Closes the manual-entry friction.
 
-5. **Wednesday risk forecast (full).** The prototype's risk surface is a simple rule based on unresolved ambiguities and high-dispute recoup categories. A second sprint trains a model against historical disputes for predicted dispute likelihood.
+5. **Per-agency settlement templates.** Configurable template applied to the same trace data — solves the "Tom Neary wants his own template" problem without rebuilding the engine.
 
-6. **Tour-side mobile-native artifact.** Diego pulls up the artifact in the van today. The next step is a TM-side iOS app that pre-reviews settlements across the tour with push notifications when each venue's artifact is ready.
+6. **Wednesday risk forecast (full).** The prototype's risk surface is a simple rule based on unresolved ambiguities and high-dispute recoup categories. A second sprint trains a model against historical disputes for predicted dispute likelihood.
 
-7. **Deal capture as input to advance.** Pri's memo named the advance workspace as the second craft bet. Once deals are structured, the advance flow can pre-populate from them. Same data, new surface.
+7. **Tour-side mobile-native artifact.** Diego pulls up the artifact in the van today. The next step is a TM-side iOS app that pre-reviews settlements across the tour with push notifications when each venue's artifact is ready.
+
+8. **Deal capture as input to advance.** Pri's memo named the advance workspace as the second craft bet. Once deals are structured, the advance flow can pre-populate from them. Same data, new surface.
 
 ## How I'd validate the bet
 
