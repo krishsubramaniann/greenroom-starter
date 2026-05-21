@@ -125,6 +125,17 @@ export const deals = sqliteTable("deals", {
   bonusesJson: text("bonuses_json"),
   dealNotesFreetext: text("deal_notes_freetext"),
 
+  // -------- V2 additions (case-study slice) --------
+  // All nullable so legacy deals continue to render via the legacy engine.
+  // `confirmedAt` is the routing flag — set means V2 engine, unset means legacy.
+  recoupsJson: text("recoups_json"),
+  ambiguitiesJson: text("ambiguities_json"),
+  sourceProse: text("source_prose"),
+  extractedAt: integer("extracted_at", { mode: "timestamp" }),
+  confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
+  compRulesJson: text("comp_rules_json"),
+  externalId: text("external_id").unique(),
+
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -281,6 +292,123 @@ export const settlements = sqliteTable("settlements", {
   notes: text("notes"),
 });
 
+// -------- V2 case-study tables --------
+
+/**
+ * Line-level acknowledgments captured during the walkthrough. Keyed by
+ * `lineKey` matching the V2 engine's `TraceStep.key` (stable, deterministic).
+ */
+export const walkthroughAcks = sqliteTable("walkthrough_acks", {
+  id: text("id").primaryKey(),
+  settlementId: text("settlement_id")
+    .notNull()
+    .references(() => settlements.id),
+  lineKey: text("line_key").notNull(),
+  ackedByUserId: text("acked_by_user_id"),
+  ackedByActorType: text("acked_by_actor_type", {
+    enum: ["user", "tour_manager", "agent"],
+  }),
+  ackedByName: text("acked_by_name"),
+  ackedAt: integer("acked_at", { mode: "timestamp" }).notNull(),
+  disputeNote: text("dispute_note"),
+});
+
+/**
+ * Magic-link share tokens for deals and settlements. The `id` is the URL slug
+ * (a UUID-ish string). No real auth for the demo; production would use proper
+ * magic-link email with expiry.
+ */
+export const shareLinks = sqliteTable("share_links", {
+  id: text("id").primaryKey(),
+  resourceType: text("resource_type", { enum: ["deal", "settlement"] }).notNull(),
+  resourceId: text("resource_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  accessedAt: integer("accessed_at", { mode: "timestamp" }),
+  signoffStatus: text("signoff_status", {
+    enum: ["open", "agreed", "questions"],
+  })
+    .notNull()
+    .default("open"),
+  signoffText: text("signoff_text"),
+  signoffByName: text("signoff_by_name"),
+  signoffAt: integer("signoff_at", { mode: "timestamp" }),
+});
+
+/**
+ * Clause-level comments on a deal. `clauseRef` is a JSON-pointer-ish string
+ * like "recoups[0].position". Channels include the magic-link inline UI,
+ * agent email replies (routed via deal-anchored reply addresses), and
+ * future in-app comments.
+ */
+export const clauseComments = sqliteTable("clause_comments", {
+  id: text("id").primaryKey(),
+  dealId: text("deal_id")
+    .notNull()
+    .references(() => deals.id),
+  clauseRef: text("clause_ref").notNull(),
+  actorType: text("actor_type", {
+    enum: ["user", "agent", "tour_manager"],
+  }).notNull(),
+  actorName: text("actor_name").notNull(),
+  body: text("body").notNull(),
+  channel: text("channel", {
+    enum: ["magic_link_inline", "email_reply", "in_app"],
+  }).notNull(),
+  resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+/**
+ * Unified activity feed across the deal lifecycle. Renders on /shows/[id] and
+ * /shows/[id]/settle. `dealId` is the human-readable externalId (e.g.,
+ * "CRES-COA-2025-03-14"); join via `deals.externalId`, not `deals.id`. Soft
+ * references (no FK) so events can outlive deletions and so external systems
+ * (email, OCR) can write events before the deal row exists.
+ */
+export const activityEvents = sqliteTable("activity_events", {
+  id: text("id").primaryKey(),
+  dealId: text("deal_id"),
+  showId: text("show_id"),
+  settlementId: text("settlement_id"),
+  eventType: text("event_type", {
+    enum: [
+      "deal_captured",
+      "ai_extracted",
+      "ambiguity_flagged",
+      "confirmation_sent",
+      "agent_opened",
+      "agent_commented",
+      "ambiguity_resolved",
+      "deal_locked",
+      "deal_revised",
+      "expense_logged",
+      "comp_logged",
+      "ticket_milestone",
+      "settlement_drafted",
+      "walkthrough_started",
+      "trace_line_acked",
+      "walkthrough_completed",
+      "settlement_sent",
+      "agent_signed_off",
+      "agent_questioned",
+      "gm_approved",
+      "wire_sent",
+      "settlement_paid",
+      "email_received",
+      "email_sent",
+    ],
+  }).notNull(),
+  actorType: text("actor_type", {
+    enum: ["user", "agent", "tour_manager", "system", "production_manager"],
+  }).notNull(),
+  actorId: text("actor_id"),
+  actorName: text("actor_name").notNull(),
+  actorRole: text("actor_role"),
+  payloadJson: text("payload_json"),
+  summary: text("summary").notNull(),
+  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+});
+
 // -------- Type exports for convenience --------
 
 export type User = typeof users.$inferSelect;
@@ -294,6 +422,10 @@ export type TicketSale = typeof ticketSales.$inferSelect;
 export type Comp = typeof comps.$inferSelect;
 export type Expense = typeof expenses.$inferSelect;
 export type Settlement = typeof settlements.$inferSelect;
+export type WalkthroughAck = typeof walkthroughAcks.$inferSelect;
+export type ShareLink = typeof shareLinks.$inferSelect;
+export type ClauseComment = typeof clauseComments.$inferSelect;
+export type ActivityEvent = typeof activityEvents.$inferSelect;
 
 // -------- Decoded JSON helpers --------
 

@@ -34,10 +34,17 @@ import {
   comps,
   expenses,
   settlements,
+  activityEvents,
+  shareLinks,
   type Bonus,
   type Recoup,
   type SettlementStage,
 } from "./schema";
+import {
+  coastalSpellActivitySeed,
+  paleLakeActivitySeed,
+} from "./seed-activity";
+import cannedExtraction from "../lib/canned/coastal-spell-extraction.json";
 
 // -------- Deterministic RNG --------
 function makeRng(seed: number) {
@@ -1356,6 +1363,39 @@ async function main() {
     ] as Bonus[]),
     dealNotesFreetext:
       "$5,000 vs 80% of net after expenses, whichever greater. Expenses capped $2,500. Hospitality cap $500. +$1,000 bonus over $25k gross. Marketing recoup of $900 against gross. (Note added 3/19/25: this deal email was ambiguous — recoup interpretation disputed by WME, resolved with $720 concession.)",
+    // V2 fields: prose-of-record, structured recoup with resolved position,
+    // ambiguity history, and confirmedAt to route to the V2 engine.
+    externalId: "CRES-COA-2025-03-14",
+    sourceProse: cannedExtraction.source_prose,
+    extractedAt: new Date("2024-12-12T15:42:00-06:00"),
+    confirmedAt: new Date("2024-12-13T10:22:30-06:00"),
+    recoupsJson: JSON.stringify([
+      {
+        id: "recoup_marketing_0",
+        category: "marketing",
+        label: "Marketing recoup (Spotify pre-show)",
+        amount: 900,
+        position: "inside_cap",
+        position_resolved_by: "agent",
+        position_resolved_at: "2024-12-13T10:22:00-06:00",
+        prose_span: "marketing recoup of $900 against gross",
+        status: "agreed",
+      },
+    ]),
+    ambiguitiesJson: JSON.stringify([
+      {
+        id: "recoup_position_marketing_0",
+        field: "recoups[0].position",
+        prose_span:
+          "Expenses capped at $2,500, marketing recoup of $900 against gross",
+        candidate_readings: ["off_gross", "inside_cap"],
+        resolution: "inside_cap",
+        resolved_at: "2024-12-13T10:22:00-06:00",
+        resolved_by: "agent",
+        estimated_impact_usd: 720,
+      },
+    ]),
+    compRulesJson: null,
     createdAt: coastalShowDate,
   });
   ticketSalesToInsert.push({
@@ -1395,37 +1435,84 @@ async function main() {
     });
   }
 
+  // V2 narrative: marketing recoup positioning was resolved with WME during
+  // deal capture (12/13/24), so no dispute fires post-show. Recoup is agreed
+  // and inside the $2,500 cap.
   const coastalRecoups: Recoup[] = [
     {
       id: `recoup_${coastalShowId}_0`,
       category: "marketing",
       label: "Spotify pre-show ad spend",
       amount: 900,
-      status: "disputed",
+      status: "agreed",
     },
   ];
 
-  // Coastal Spell stage = disputed (in-flight, not yet resolved in product —
-  // narratively, Marcus authorized the concession but it's not been formalized
-  // back into the system as a revision).
+  // Timestamps mirror the seed-activity events for show_coastal_spell_dispute:
+  // drafted at show end, sent next morning, agent signed off Saturday,
+  // GM approved Sunday, wired Monday.
   settlementsToInsert.push({
     id: `stl_${coastalShowId}`,
     showId: coastalShowId,
-    status: "disputed",
-    draftedAt: new Date("2025-03-15T02:00:00"),
-    submittedAt: new Date("2025-03-15T11:00:00"),
-    reviewStartedAt: new Date("2025-03-16T09:00:00"),
-    disputedAt: new Date("2025-03-18T14:00:00"),
-    completedAt: new Date("2025-03-18T14:00:00"),
+    status: "paid",
+    draftedAt: new Date("2025-03-14T23:42:00-06:00"),
+    submittedAt: new Date("2025-03-15T07:02:00-06:00"),
+    reviewStartedAt: new Date("2025-03-15T08:42:00-06:00"),
+    signedAt: new Date("2025-03-15T08:47:00-06:00"),
+    paidAt: new Date("2025-03-17T10:31:00-06:00"),
+    completedAt: new Date("2025-03-17T10:31:00-06:00"),
     completedByUserId: MARIANA_ID,
     grossBoxOffice: 19840,
     netBoxOffice: 17856,
     totalExpenses: 1600,
     totalToArtist: 12285,
     recoupsJson: JSON.stringify(coastalRecoups),
-    signoffText: "OK — but flag any future marketing recoup deals.",
+    signoffText:
+      "Looks clean. Thanks for the heads-up on the hospitality overage.",
     notes:
-      "Disputed by WME (Daniel Hwang) on 3/18 over the $900 marketing recoup. Marcus authorized additional $720 to resolve, but the formal revision hasn't been pushed back into the system yet. Final agreed: $12,285 (vs originally calculated $11,565). See email thread for context. Going forward: deal emails must specify marketing recoup as inside or outside expense cap.",
+      "V2 path. Marketing recoup positioning resolved with WME pre-show (12/13/24, see deal.ambiguitiesJson) — no dispute fired. Total to artist: $12,285. See activity log for full lifecycle.",
+  });
+
+  // -------- Inject the Pale Lake April 23 2026 future-show fixture --------
+  // Deal-locked, week-of state. Gives the demo a contrast to Coastal Spell's
+  // full lifecycle: a show with structured terms, no ambiguities, no
+  // post-show data yet. Referenced by paleLakeActivitySeed.
+  const paleLakeShowId = "show_pale_lake_apr";
+  const paleLakeDate = "2026-04-23";
+  const paleLakeCreated = new Date("2026-02-10T14:22:00-06:00");
+  showsToInsert.push({
+    id: paleLakeShowId,
+    venueId: VENUE_ID,
+    artistId: "art_pale_lake",
+    date: paleLakeDate,
+    status: "advanced",
+    doorsTime: "19:30",
+    setTime: "21:00",
+    roomConfig: "standing",
+    internalNotes: null,
+    createdAt: paleLakeCreated,
+  });
+  dealsToInsert.push({
+    id: `deal_${paleLakeShowId}`,
+    showId: paleLakeShowId,
+    dealType: "vs",
+    guaranteeAmount: 6000,
+    percentage: 0.85,
+    percentageBasis: "net",
+    expenseCap: 3000,
+    hospitalityCap: 600,
+    bonusesJson: null,
+    dealNotesFreetext:
+      "$6,000 vs 85% of net after expenses. Expense cap $3,000. Hospitality cap $600.",
+    externalId: "CRES-PL-2026-04-23",
+    sourceProse:
+      "Hi Mariana,\n\nConfirming Pale Lake for 4/23. Deal is $6,000 vs 85% of net after expenses. Expense cap $3,000. Hospitality cap $600.\n\nBest, Andrea",
+    extractedAt: paleLakeCreated,
+    confirmedAt: new Date("2026-02-11T09:15:00-06:00"),
+    recoupsJson: JSON.stringify([]),
+    ambiguitiesJson: JSON.stringify([]),
+    compRulesJson: null,
+    createdAt: paleLakeCreated,
   });
 
   // Bulk insert
@@ -1439,6 +1526,39 @@ async function main() {
   for (const c of chunkArr(compsToInsert, 50)) await db.insert(comps).values(c);
   for (const c of chunkArr(expensesToInsert, 50)) await db.insert(expenses).values(c);
   for (const c of chunkArr(settlementsToInsert, 50)) await db.insert(settlements).values(c);
+
+  // -------- Activity events (case-study unified log) --------
+  const allActivity = [...coastalSpellActivitySeed, ...paleLakeActivitySeed];
+  for (const c of chunkArr(allActivity, 50)) await db.insert(activityEvents).values(c);
+
+  // -------- Share links (magic-link tokens referenced by activity events) --------
+  // Tokens match what's emitted in the activity-log seed payloads, so the
+  // agent-facing pages resolve in the demo before Phase 5 generates new ones.
+  const shareLinksToInsert = [
+    {
+      id: "cs-mar14-abc123",
+      resourceType: "deal" as const,
+      resourceId: `deal_${coastalShowId}`,
+      createdAt: new Date("2024-12-12T15:45:00-06:00"),
+      accessedAt: new Date("2024-12-13T09:15:00-06:00"),
+      signoffStatus: "agreed" as const,
+      signoffText: null,
+      signoffByName: "Andrea Pelletier",
+      signoffAt: new Date("2024-12-13T10:22:00-06:00"),
+    },
+    {
+      id: "cs-mar14-stl-xyz789",
+      resourceType: "settlement" as const,
+      resourceId: `stl_${coastalShowId}`,
+      createdAt: new Date("2025-03-15T07:02:00-06:00"),
+      accessedAt: new Date("2025-03-15T08:42:00-06:00"),
+      signoffStatus: "agreed" as const,
+      signoffText: "Looks clean. Thanks for the heads-up on the hospitality overage.",
+      signoffByName: "Andrea Pelletier",
+      signoffAt: new Date("2025-03-15T08:47:00-06:00"),
+    },
+  ];
+  await db.insert(shareLinks).values(shareLinksToInsert);
 
   // BC11 finalization: artist's priorShowCount left stale despite many shows
   for (const bc of breadcrumbsToFinalize) {
@@ -1469,7 +1589,10 @@ async function main() {
   console.log(`   ${settlementsToInsert.length} settlements (${Object.entries(stageCounts).map(([k, v]) => `${k}:${v}`).join(", ")})`);
   console.log(`   ${recoupCount} settlements have recoup line items`);
   console.log(`   ${bonusCount} deals have structured bonuses`);
-  console.log(`   1 named dispute (Coastal Spell, March 2025) injected for narrative continuity`);
+  console.log(`   1 named dispute (Coastal Spell, March 2025) injected — now resolved upstream via V2 deal capture`);
+  console.log(`   1 future show (Pale Lake, April 2026) injected in deal-locked state`);
+  console.log(`   ${allActivity.length} activity events (${coastalSpellActivitySeed.length} Coastal Spell, ${paleLakeActivitySeed.length} Pale Lake)`);
+  console.log(`   ${shareLinksToInsert.length} share links (deal + settlement magic-link tokens)`);
 }
 
 main()

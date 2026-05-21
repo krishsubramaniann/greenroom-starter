@@ -13,33 +13,9 @@
  * Loom), the events are written in real time by the app — no seeding needed.
  */
 
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-
-export const activityEvents = sqliteTable("activity_events", {
-  id: text("id").primaryKey(),
-  dealId: text("deal_id"),                       // CRES-COA-2026-03-14 style
-  showId: text("show_id"),
-  settlementId: text("settlement_id"),
-  eventType: text("event_type", {
-    enum: [
-      "deal_captured", "ai_extracted", "ambiguity_flagged",
-      "confirmation_sent", "agent_opened", "agent_commented", "ambiguity_resolved",
-      "deal_locked", "deal_revised",
-      "expense_logged", "comp_logged", "ticket_milestone",
-      "settlement_drafted", "walkthrough_started", "trace_line_acked", "walkthrough_completed",
-      "settlement_sent", "agent_signed_off", "agent_questioned",
-      "gm_approved", "wire_sent", "settlement_paid",
-      "email_received", "email_sent",
-    ],
-  }).notNull(),
-  actorType: text("actor_type", { enum: ["user", "agent", "tour_manager", "system", "production_manager"] }).notNull(),
-  actorId: text("actor_id"),                     // FK to users/agents/etc.
-  actorName: text("actor_name").notNull(),       // denormalized for fast render
-  actorRole: text("actor_role"),                  // "Booker", "GM", "TM (Coastal Spell)", "Agent (WME)"
-  payloadJson: text("payload_json"),              // structured event detail
-  summary: text("summary").notNull(),             // human-readable single-line
-  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
-});
+// Canonical `activityEvents` table lives in ./schema. Re-exported here so
+// downstream importers can keep a single import path if they prefer.
+export { activityEvents } from "./schema";
 
 // ---------------------------------------------------------------------------
 // Coastal Spell — full lifecycle events (Dec 12 2024 → Mar 16 2025)
