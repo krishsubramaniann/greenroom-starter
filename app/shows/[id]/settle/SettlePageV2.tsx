@@ -45,6 +45,7 @@ import { TraceLine } from "@/components/settlement/TraceLine";
 import { AmbiguityCard } from "@/components/settlement/AmbiguityCard";
 
 import { SettleActionBar } from "./SettleActionBar";
+import { Walkthrough } from "./Walkthrough";
 
 const DEAL_TYPE_LABELS: Record<Deal["dealType"], string> = {
   flat: "Flat guarantee",
@@ -201,25 +202,6 @@ export async function SettlePageV2({ data, searchParams }: Props) {
             </CardContent>
           </Card>
 
-          {/* Walkthrough banner */}
-          {isWalkthroughActive && (
-            <div className="mb-4 rounded-md border border-brand-300 bg-brand-50/70 px-4 py-2.5 flex items-center gap-3">
-              <div className="size-2 rounded-full bg-brand-700 animate-pulse" />
-              <div className="flex-1">
-                <div className="text-[12px] font-medium text-brand-900">
-                  Walkthrough mode
-                </div>
-                <div className="text-[11px] text-brand-700/80">
-                  Acknowledge each line with the tour manager. Ack persistence
-                  ships in the next phase.
-                </div>
-              </div>
-              <span className="text-[10.5px] text-brand-700">
-                {acks.length}/{result.trace.length} acknowledged
-              </span>
-            </div>
-          )}
-
           {/* Grid: trace + sidebar */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8">
@@ -238,7 +220,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                     <TraceLine
                       key={step.key}
                       step={step}
-                      ackable={isWalkthroughActive}
+                      ackable={false}
                       ackedBy={ackByKey.get(step.key) ?? null}
                     />
                   ))}
@@ -361,6 +343,20 @@ export async function SettlePageV2({ data, searchParams }: Props) {
         shareUrl={shareUrl}
         isWalkthroughActive={isWalkthroughActive}
       />
+
+      {/* Walkthrough overlay — full-screen takeover when ?walkthrough=1 */}
+      {isWalkthroughActive && result.supported && settlement && (
+        <Walkthrough
+          settlementId={settlement.id}
+          showId={show.id}
+          artistName={artist?.name ?? "Artist"}
+          tourManagerName={`${artist?.name ?? "Artist"} TM`}
+          trace={result.trace}
+          initialAcks={acks}
+          shareUrl={shareUrl}
+          exitHref={`/shows/${show.id}/settle`}
+        />
+      )}
     </div>
   );
 }

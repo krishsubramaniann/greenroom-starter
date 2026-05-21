@@ -109,34 +109,49 @@ type Props = {
   ackable?: boolean;
   ackedBy?: WalkthroughAck | null;
   onAck?: (disputeNote?: string) => void;
+  /** Walkthrough overlay only — scales type up, brand ring. */
+  focused?: boolean;
+  /** Walkthrough overlay only — fades to ~40% so this line reads as out-of-focus. */
+  dimmed?: boolean;
 };
 
-export function TraceLine({ step, ackable, ackedBy, onAck }: Props) {
+export function TraceLine({
+  step,
+  ackable,
+  ackedBy,
+  onAck,
+  focused,
+  dimmed,
+}: Props) {
   const Icon = KIND_ICON[step.kind] ?? Circle;
   const flag = step.flag ? FLAG_STYLES[step.flag] : null;
   const isNegative = step.value < 0;
   const isResult = step.kind === "result";
   const isNet = step.key === "net";
-  const dim = step.flag === "not_triggered";
+  const dimByFlag = step.flag === "not_triggered";
 
   return (
     <div
       className={cn(
-        "flex items-center gap-3 px-4 py-2.5 border-b border-ink-100 last:border-b-0",
+        "flex items-center gap-3 px-4 border-b border-ink-100 last:border-b-0",
+        focused ? "py-4" : "py-2.5",
         isResult && "bg-brand-50/40 border-b-0",
         isNet && "bg-ink-50/60",
-        dim && "opacity-60",
+        dimByFlag && !focused && "opacity-60",
+        focused && "bg-brand-50/40 ring-2 ring-brand-200 rounded-md",
+        dimmed && "opacity-40 transition-opacity",
       )}
       data-trace-key={step.key}
     >
       {/* Kind icon */}
       <div
         className={cn(
-          "size-7 rounded-md flex items-center justify-center shrink-0",
+          "rounded-md flex items-center justify-center shrink-0",
+          focused ? "size-10" : "size-7",
           isResult ? "bg-brand-100 text-brand-700" : "bg-ink-50 text-ink-500",
         )}
       >
-        <Icon className="size-3.5" />
+        <Icon className={focused ? "size-5" : "size-3.5"} />
       </div>
 
       {/* Label + source + formula */}
@@ -144,7 +159,7 @@ export function TraceLine({ step, ackable, ackedBy, onAck }: Props) {
         <div className="flex items-center gap-2 flex-wrap">
           <span
             className={cn(
-              "text-[13px]",
+              focused ? "text-[17px] font-medium" : "text-[13px]",
               isResult ? "text-brand-900 font-medium" : "text-ink-900",
             )}
           >
@@ -175,8 +190,10 @@ export function TraceLine({ step, ackable, ackedBy, onAck }: Props) {
       {/* Value */}
       <div
         className={cn(
-          "font-mono tabular text-[13.5px] shrink-0 min-w-[100px] text-right",
-          isResult && "text-brand-900 font-medium text-[15px]",
+          "font-mono tabular shrink-0 min-w-[100px] text-right",
+          focused ? "text-[20px] font-medium" : "text-[13.5px]",
+          isResult && !focused && "text-brand-900 font-medium text-[15px]",
+          isResult && focused && "text-brand-900 text-[22px]",
           isNegative && !isResult && "text-rose-700",
           !isNegative && !isResult && "text-ink-800",
         )}
