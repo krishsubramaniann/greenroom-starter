@@ -17,18 +17,15 @@ import {
   ClauseThread,
   type ClauseThreadComment,
 } from "@/components/shared/ClauseThread";
+import { ActivityLog } from "@/components/activity/ActivityLog";
 import type { SettlementResultV2 } from "@/lib/dealMathV2";
-import type { Deal, Show, Artist, Settlement } from "@/db/schema";
-
-type Activity = {
-  id: string;
-  eventType: string;
-  actorType: string;
-  actorName: string;
-  actorRole: string | null;
-  summary: string;
-  occurredAt: Date;
-};
+import type {
+  Deal,
+  Show,
+  Artist,
+  Settlement,
+  ActivityEvent,
+} from "@/db/schema";
 
 type Props = {
   token: string;
@@ -40,35 +37,11 @@ type Props = {
   agentName: string;
   agencyName: string | null;
   traceComments: Array<ClauseThreadComment & { clauseRef: string }>;
-  activity: Activity[];
+  activity: ActivityEvent[];
   signoffStatus: "open" | "agreed" | "questions";
   signoffText: string | null;
   signoffByName: string | null;
   signoffAt: Date | null;
-};
-
-const EVENT_TONE: Record<string, "default" | "amber" | "brand" | "sky" | "rose"> = {
-  deal_captured: "default",
-  ambiguity_flagged: "amber",
-  ambiguity_resolved: "brand",
-  confirmation_sent: "sky",
-  agent_opened: "sky",
-  agent_commented: "sky",
-  deal_locked: "brand",
-  expense_logged: "default",
-  ticket_milestone: "default",
-  settlement_drafted: "default",
-  walkthrough_started: "default",
-  walkthrough_completed: "brand",
-  trace_line_acked: "brand",
-  settlement_sent: "sky",
-  agent_signed_off: "brand",
-  agent_questioned: "amber",
-  gm_approved: "brand",
-  wire_sent: "brand",
-  settlement_paid: "brand",
-  email_received: "sky",
-  email_sent: "sky",
 };
 
 export function AgentArtifact({
@@ -99,7 +72,6 @@ export function AgentArtifact({
   }, [traceComments]);
 
   const [dealPanelOpen, setDealPanelOpen] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
   const [questionFor, setQuestionFor] = useState<string | null>(null);
   const [questionDraft, setQuestionDraft] = useState("");
   const [signoffMode, setSignoffMode] = useState<"none" | "questions">("none");
@@ -347,61 +319,9 @@ export function AgentArtifact({
           </div>
         </section>
 
-        {/* Activity log */}
-        <section className="rounded-lg border border-ink-200 bg-white overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setActivityOpen((v) => !v)}
-            className="w-full px-4 py-3 flex items-center justify-between text-left"
-          >
-            <div>
-              <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium">
-                Activity log
-              </div>
-              <div className="text-[13px] text-ink-900 mt-0.5">
-                {activity.length} event{activity.length === 1 ? "" : "s"} · full
-                lifecycle visible
-              </div>
-            </div>
-            {activityOpen ? (
-              <ChevronUp className="size-4 text-ink-500" />
-            ) : (
-              <ChevronDown className="size-4 text-ink-500" />
-            )}
-          </button>
-          {activityOpen && (
-            <ol className="border-t border-ink-100 max-h-[420px] overflow-y-auto">
-              {activity.map((e) => (
-                <li
-                  key={e.id}
-                  className="px-4 py-2.5 border-b border-ink-100 last:border-b-0 text-[12px]"
-                >
-                  <div className="flex items-baseline gap-2">
-                    <PlainBadge
-                      variant={EVENT_TONE[e.eventType] ?? "default"}
-                      className="shrink-0"
-                    >
-                      {e.eventType.replace(/_/g, " ")}
-                    </PlainBadge>
-                    <span className="text-ink-500 text-[10.5px] shrink-0">
-                      {new Date(e.occurredAt).toLocaleString([], {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                  <div className="text-ink-800 mt-1">{e.summary}</div>
-                  <div className="text-ink-500 text-[11px] mt-0.5">
-                    {e.actorName}
-                    {e.actorRole && ` · ${e.actorRole}`}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
+        {/* Activity log — full timeline, collapsed by default */}
+        <ActivityLog events={activity} variant="full" defaultExpanded={false} />
+
 
         {error && (
           <div className="text-[12px] text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">

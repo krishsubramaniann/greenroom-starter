@@ -118,6 +118,7 @@ const ARTIST_DEFS: ArtistDef[] = [
   { id: "art_drive_north", name: "Drive North", genre: "alt country", tier: "B", recurrence: 2 },
   { id: "art_rookie_dive", name: "Rookie Dive", genre: "indie pop", tier: "C", recurrence: 4 },
   { id: "art_hollow_branch", name: "Hollow Branch", genre: "post rock", tier: "C", recurrence: 3 },
+  { id: "art_hollow_oak", name: "Hollow Oak", genre: "indie folk", tier: "B", recurrence: 1 },
   { id: "art_low_rooms", name: "Low Rooms", genre: "indie rock", tier: "C", recurrence: 4 },
   { id: "art_navarro", name: "Navarro", genre: "songwriter", tier: "C", recurrence: 3 },
   { id: "art_stoneflower", name: "Stoneflower", genre: "indie folk", tier: "C", recurrence: 3 },
@@ -881,6 +882,9 @@ async function main() {
 
   const artistAgentMap = new Map<string, string>();
   for (const a of ARTIST_DEFS) artistAgentMap.set(a.id, pickAgentForArtist(a.tier));
+  // Pin Hollow Oak to Sarah Kim (WME) — easier agent, matches the demo
+  // narrative for the fresh-show fixture.
+  artistAgentMap.set("art_hollow_oak", "agent_sarah_kim");
 
   await db.insert(artists).values(
     ARTIST_DEFS.map((a) => ({
@@ -1515,6 +1519,28 @@ async function main() {
     createdAt: paleLakeCreated,
   });
 
+  // -------- Inject the Hollow Oak June 19 2026 fresh-show fixture --------
+  // Live-demo subject: a show with no deal record yet. The Loom captures
+  // the deal in real time by pasting prose into /shows/[id]/deal/capture.
+  // Sarah Kim @ WME is pinned as the agent above.
+  const hollowOakShowId = "show_hollow_oak_jun";
+  const hollowOakDate = "2026-06-19";
+  const hollowOakCreated = new Date("2026-04-15T14:00:00-06:00");
+  showsToInsert.push({
+    id: hollowOakShowId,
+    venueId: VENUE_ID,
+    artistId: "art_hollow_oak",
+    date: hollowOakDate,
+    status: "booked",
+    doorsTime: "19:00",
+    setTime: "20:30",
+    roomConfig: "seated",
+    internalNotes: "Fresh booking — deal email from Sarah expected this week.",
+    createdAt: hollowOakCreated,
+  });
+  // Deliberately no deal, settlement, tickets, expenses, or comps for
+  // Hollow Oak — the demo creates these live.
+
   // Bulk insert
   console.log(`   Inserting ${showsToInsert.length} shows…`);
   const chunkArr = <T>(arr: T[], size: number): T[][] =>
@@ -1591,6 +1617,7 @@ async function main() {
   console.log(`   ${bonusCount} deals have structured bonuses`);
   console.log(`   1 named dispute (Coastal Spell, March 2025) injected — now resolved upstream via V2 deal capture`);
   console.log(`   1 future show (Pale Lake, April 2026) injected in deal-locked state`);
+  console.log(`   1 fresh show (Hollow Oak, June 19 2026) injected with no deal — for live capture demo`);
   console.log(`   ${allActivity.length} activity events (${coastalSpellActivitySeed.length} Coastal Spell, ${paleLakeActivitySeed.length} Pale Lake)`);
   console.log(`   ${shareLinksToInsert.length} share links (deal + settlement magic-link tokens)`);
 }

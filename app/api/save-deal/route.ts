@@ -11,9 +11,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { deals, activityEvents } from "@/db/schema";
+import { deals, activityEvents, shareLinks } from "@/db/schema";
 import { randomUUID } from "node:crypto";
 import type { Bonus } from "@/db/schema";
 import type { Ambiguity, RecoupV2 } from "@/lib/dealMathV2";
@@ -156,9 +156,38 @@ export async function POST(req: NextRequest) {
     occurredAt: now,
   });
 
+  // Auto-create a deal-type share_link if one doesn't already exist. The
+  // token is what the clarification email interpolates so the agent has a
+  // direct URL to click, and what /shared/deal/[token] resolves against.
+  const [existingLink] = await db
+    .select()
+    .from(shareLinks)
+    .where(
+      and(
+        eq(shareLinks.resourceType, "deal"),
+        eq(shareLinks.resourceId, dealId),
+      ),
+    )
+    .limit(1);
+
+  let dealShareToken: string;
+  if (existingLink) {
+    dealShareToken = existingLink.id;
+  } else {
+    dealShareToken = `dl-${randomUUID().slice(0, 12)}`;
+    await db.insert(shareLinks).values({
+      id: dealShareToken,
+      resourceType: "deal",
+      resourceId: dealId,
+      createdAt: now,
+      signoffStatus: "open",
+    });
+  }
+
   return NextResponse.json({
     ok: true,
     dealId,
+    dealShareToken,
     confirmed: confirmedAt !== null,
     unresolvedAmbiguities: unresolvedCount,
   });

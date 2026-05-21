@@ -23,6 +23,8 @@ type ClarificationContext = {
   venue_reading?: string;
   alternative_reading?: string;
   estimated_dollar_impact?: string;
+  /** Magic-link URL the agent can click to confirm/comment. */
+  magic_link_url?: string | null;
 };
 
 type Body = {
@@ -59,6 +61,7 @@ export async function POST(req: NextRequest) {
 
   const subject = `${artist} ${date} — quick deal clarification`;
 
+  const magicLinkUrl = ctx.magic_link_url ?? null;
   const body_text = [
     `Hi ${agent.split(" ")[0]},`,
     "",
@@ -68,7 +71,9 @@ export async function POST(req: NextRequest) {
     "",
     `Want to make sure that matches your read before we settle on the ${date.replace(/^\D+/, "")}. The two interpretations end up ${impact} apart at the gross we're tracking for this show, which is why I'd rather lock it in now.`,
     "",
-    `Can you confirm? Happy to jump on a call if easier.`,
+    magicLinkUrl
+      ? `You can confirm or leave a comment directly here: ${magicLinkUrl}`
+      : `Can you confirm? Happy to jump on a call if easier.`,
     "",
     booker,
   ].join("\n");

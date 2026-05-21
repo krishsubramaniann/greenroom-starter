@@ -47,6 +47,9 @@ export function DealCaptureFlow({
   const [hoveredProseSpan, setHoveredProseSpan] = useState<string | null>(null);
   const [resolutions, setResolutions] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // Cached after a successful save — passed to /api/draft-clarification so
+  // the email body has a clickable magic-link URL the agent can use.
+  const [dealShareToken, setDealShareToken] = useState<string | null>(null);
 
   async function handleExtract() {
     setError(null);
@@ -160,6 +163,8 @@ export function DealCaptureFlow({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? `Save failed: ${res.status}`);
       }
+      const saved = await res.json().catch(() => ({}));
+      if (saved?.dealShareToken) setDealShareToken(saved.dealShareToken);
       setPhase("saved");
       router.refresh();
     } catch (e) {
@@ -237,6 +242,7 @@ export function DealCaptureFlow({
           showDate={showDate}
           dealId={initial.dealId}
           dealExternalId={initial.showExternalId}
+          dealShareToken={dealShareToken}
           resolutions={resolutions}
           onLocalResolve={handleLocalResolve}
           onSimulateAgent={handleSimulateAgent}

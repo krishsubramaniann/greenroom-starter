@@ -21,6 +21,8 @@ import {
   walkthroughAcks as walkthroughAcksTable,
   shareLinks as shareLinksTable,
   clauseComments as clauseCommentsTable,
+  activityEvents as activityEventsTable,
+  settlements as settlementsTable,
   type WalkthroughAck,
   type Deal,
 } from "@/db/schema";
@@ -44,6 +46,7 @@ import { LifecycleBar } from "@/components/settlement/LifecycleBar";
 import { BranchSummary } from "@/components/settlement/BranchSummary";
 import { TraceLine } from "@/components/settlement/TraceLine";
 import { AmbiguityCard } from "@/components/settlement/AmbiguityCard";
+import { ActivityLog } from "@/components/activity/ActivityLog";
 
 import { SettleActionBar } from "./SettleActionBar";
 import { Walkthrough } from "./Walkthrough";
@@ -61,6 +64,47 @@ const DEAL_TYPE_LABELS: Record<Deal["dealType"], string> = {
  * the action bar can hand it to the agent. For Phase 3 the destination page
  * (Phase 5) doesn't render yet, but the token is real.
  */
+/**
+ * Lazy-create a draft settlement when a V2-confirmed deal has no settlement
+ * row yet (e.g. the first time someone visits /shows/<fresh>/settle after
+ * locking the deal in capture). Also writes a settlement_drafted activity
+ * event so the timeline reflects the system action.
+ */
+async function ensureDraftSettlement(showId: string, deal: Deal) {
+  const [existing] = await db
+    .select()
+    .from(settlementsTable)
+    .where(eq(settlementsTable.showId, showId))
+    .limit(1);
+  if (existing) return existing;
+  const id = `stl_${showId}`;
+  const now = new Date();
+  await db.insert(settlementsTable).values({
+    id,
+    showId,
+    status: "draft",
+    draftedAt: now,
+  });
+  await db.insert(activityEventsTable).values({
+    id: `ae_${randomUUID()}`,
+    dealId: deal.externalId,
+    showId,
+    settlementId: id,
+    eventType: "settlement_drafted",
+    actorType: "system",
+    actorName: "Greenroom",
+    actorRole: "System",
+    summary: "Settlement draft auto-created on first settle-page visit",
+    payloadJson: null,
+    occurredAt: now,
+  });
+  const [created] = await db
+    .select()
+    .from(settlementsTable)
+    .where(eq(settlementsTable.id, id));
+  return created;
+}
+
 async function ensureSettlementShareLink(
   settlementId: string,
 ): Promise<string> {
@@ -93,7 +137,8 @@ type Props = {
 };
 
 export async function SettlePageV2({ data, searchParams }: Props) {
-  const { show, artist, deal, settlement, ticketSales, expenses, comps } = data;
+  const { show, artist, deal, ticketSales, expenses, comps } = data;
+  let { settlement } = data;
   if (!deal) {
     // No deal at all — shouldn't reach here (router guards), but render safely.
     return (
@@ -102,6 +147,14 @@ export async function SettlePageV2({ data, searchParams }: Props) {
         <div className="text-[13px] text-ink-400">No deal captured.</div>
       </div>
     );
+  }
+
+  // Lazy-create a draft settlement on first V2-page visit. The V2 path
+  // routes only when deal.confirmedAt is set, so a fresh confirmed deal
+  // (e.g. Hollow Oak post-capture) gets a real settlement row + share_link
+  // anchor on first load — no separate "Start settlement" action needed.
+  if (!settlement && deal.confirmedAt) {
+    settlement = await ensureDraftSettlement(show.id, deal);
   }
 
   const isWalkthroughActive = searchParams.walkthrough === "1";
@@ -185,6 +238,14 @@ export async function SettlePageV2({ data, searchParams }: Props) {
   // of truth for unresolved state, not the engine's filtered list.
   const dealAmbiguities = parseDealAmbiguities(deal);
   const unresolved = dealAmbiguities.filter((a) => !a.resolution);
+
+  // Recent activity for the sidebar — last 5 events, reverse-chronological.
+  const recentActivity = await db
+    .select()
+    .from(activityEventsTable)
+    .where(eq(activityEventsTable.showId, show.id))
+    .orderBy(desc(activityEventsTable.occurredAt))
+    .limit(5);
 
   return (
     <div className="px-12 py-10 pb-24 max-w-7xl mx-auto">
@@ -465,6 +526,20 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                   />
                 </CardContent>
               </Card>
+
+              {/* Recent activity — compact, last 5 */}
+              <div>
+                <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium mb-2 px-1">
+                  Recent activity
+                </div>
+                <ActivityLog
+                  events={recentActivity}
+                  variant="compact"
+                  limit={5}
+                  viewAllHref={`/shows/${show.id}`}
+                  emptyMessage="No activity yet."
+                />
+              </div>
             </div>
           </div>
         </>

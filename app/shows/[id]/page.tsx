@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { eq, asc } from "drizzle-orm";
 import {
   ArrowLeft,
   FileSpreadsheet,
@@ -7,7 +8,10 @@ import {
   Clock,
   TrendingUp,
 } from "lucide-react";
+import { db } from "@/db";
+import { activityEvents } from "@/db/schema";
 import { getShowById } from "@/lib/queries";
+import { ActivityLog } from "@/components/activity/ActivityLog";
 import {
   Card,
   CardContent,
@@ -64,6 +68,13 @@ export default async function ShowDetailPage({
   const totalExpenses = expenses
     .filter((e) => !e.absorbedByVenue)
     .reduce((sum, e) => sum + e.amount, 0);
+
+  // Activity log for the show — full timeline, chronological.
+  const activity = await db
+    .select()
+    .from(activityEvents)
+    .where(eq(activityEvents.showId, show.id))
+    .orderBy(asc(activityEvents.occurredAt));
   const absorbedTotal = expenses
     .filter((e) => e.absorbedByVenue)
     .reduce((sum, e) => sum + e.amount, 0);
@@ -250,8 +261,26 @@ export default async function ShowDetailPage({
                   )}
                 </>
               ) : (
-                <div className="text-[13px] text-ink-400">
-                  No deal entered yet.
+                <div className="rounded-lg ring-1 ring-brand-200/60 bg-brand-50/30 p-5">
+                  <div className="eyebrow text-[10px] text-brand-800 mb-2">
+                    Pre-show · deal capture
+                  </div>
+                  <div className="text-[15px] text-ink-900 font-medium leading-tight">
+                    No deal captured yet
+                  </div>
+                  <p className="text-[12.5px] text-ink-600 mt-1.5 max-w-prose leading-relaxed">
+                    Paste the deal email from {agent?.name ?? "the agent"}. AI
+                    extracts structured terms, flags ambiguities, and routes
+                    the deal to the settlement engine once locked.
+                  </p>
+                  <div className="mt-4">
+                    <Link
+                      href={`/shows/${show.id}/deal/capture`}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium px-4 h-9 bg-brand-700 text-white hover:bg-brand-800 shadow-sm shadow-brand-700/15 ring-1 ring-inset ring-brand-800/20"
+                    >
+                      Capture deal terms →
+                    </Link>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -452,6 +481,11 @@ export default async function ShowDetailPage({
               )}
             </CardContent>
           </Card>
+        </div>
+
+        {/* Activity log — full timeline, collapsed by default */}
+        <div className="mt-6">
+          <ActivityLog events={activity} variant="full" defaultExpanded={false} />
         </div>
       </div>
     </div>

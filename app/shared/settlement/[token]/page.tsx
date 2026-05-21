@@ -102,15 +102,7 @@ export default async function SettlementSharePage({
         channel: c.channel,
         createdAt: c.createdAt,
       }))}
-      activity={activity.map((e) => ({
-        id: e.id,
-        eventType: e.eventType,
-        actorType: e.actorType,
-        actorName: e.actorName,
-        actorRole: e.actorRole,
-        summary: e.summary,
-        occurredAt: e.occurredAt,
-      }))}
+      activity={activity}
       signoffStatus={ctx.link.signoffStatus}
       signoffText={ctx.link.signoffText}
       signoffByName={ctx.link.signoffByName}

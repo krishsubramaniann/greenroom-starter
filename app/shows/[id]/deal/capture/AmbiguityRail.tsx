@@ -13,6 +13,9 @@ type Props = {
   showDate: string;
   dealId: string | null;
   dealExternalId: string;
+  /** Magic-link token for the deal share. Interpolated into the clarification
+   *  email body so the agent has a clickable URL. */
+  dealShareToken: string | null;
   /** Local pre-save resolutions: ambiguityId → resolution value. */
   resolutions: Record<string, string>;
   onLocalResolve: (ambiguityId: string, resolution: string) => void;
@@ -32,6 +35,7 @@ function AmbiguityCard({
   artistName,
   showDate,
   dealExternalId,
+  dealShareToken,
   localResolution,
   onLocalResolve,
   onSimulateAgent,
@@ -41,6 +45,7 @@ function AmbiguityCard({
   artistName: string;
   showDate: string;
   dealExternalId: string;
+  dealShareToken: string | null;
   localResolution: string | undefined;
   onLocalResolve: (resolution: string) => void;
   onSimulateAgent: (resolution: string) => Promise<void>;
@@ -90,6 +95,12 @@ function AmbiguityCard({
       const alt = ambiguity.candidate_readings.find(
         (r) => r.structured_value !== selectedReading,
       );
+      const magicLinkUrl =
+        dealShareToken && typeof window !== "undefined"
+          ? `${window.location.origin}/shared/deal/${dealShareToken}`
+          : dealShareToken
+            ? `/shared/deal/${dealShareToken}`
+            : null;
       const res = await fetch("/api/draft-clarification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -106,6 +117,7 @@ function AmbiguityCard({
             venue_reading: reading?.interpretation ?? "",
             alternative_reading: alt?.interpretation ?? "",
             estimated_dollar_impact: reading?.estimated_impact ?? "",
+            magic_link_url: magicLinkUrl,
           },
         }),
       });
@@ -284,6 +296,7 @@ export function AmbiguityRail({
   artistName,
   showDate,
   dealExternalId,
+  dealShareToken,
   resolutions,
   onLocalResolve,
   onSimulateAgent,
@@ -313,6 +326,7 @@ export function AmbiguityRail({
             artistName={artistName}
             showDate={showDate}
             dealExternalId={dealExternalId}
+            dealShareToken={dealShareToken}
             localResolution={resolutions[a.id]}
             onLocalResolve={(r) => onLocalResolve(a.id, r)}
             onSimulateAgent={(r) => onSimulateAgent(a.id, r)}
