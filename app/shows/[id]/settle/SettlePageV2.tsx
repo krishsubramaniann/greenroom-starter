@@ -47,6 +47,7 @@ import { BranchSummary } from "@/components/settlement/BranchSummary";
 import { TraceLine } from "@/components/settlement/TraceLine";
 import { AmbiguityCard } from "@/components/settlement/AmbiguityCard";
 import { ActivityLog } from "@/components/activity/ActivityLog";
+import { LiveExpensesPanel } from "@/components/expenses/LiveExpensesPanel";
 
 import { SettleActionBar } from "./SettleActionBar";
 import { Walkthrough } from "./Walkthrough";
@@ -131,6 +132,35 @@ async function ensureSettlementShareLink(
   return `/shared/settlement/${token}`;
 }
 
+/**
+ * Lazy-create a pm_expense share_link for the show. Returned token is what
+ * Mariana texts to the production manager so he can hit /m/expense?token=...
+ * Stable per-show: if a link already exists, it's reused.
+ */
+async function ensurePmExpenseShareLink(showId: string): Promise<string> {
+  const existing = await db
+    .select()
+    .from(shareLinksTable)
+    .where(
+      and(
+        eq(shareLinksTable.resourceType, "pm_expense"),
+        eq(shareLinksTable.resourceId, showId),
+      ),
+    )
+    .orderBy(desc(shareLinksTable.createdAt))
+    .limit(1);
+  if (existing[0]) return existing[0].id;
+  const token = `pm-${randomUUID().slice(0, 12)}`;
+  await db.insert(shareLinksTable).values({
+    id: token,
+    resourceType: "pm_expense",
+    resourceId: showId,
+    createdAt: new Date(),
+    signoffStatus: "open",
+  });
+  return token;
+}
+
 type Props = {
   data: ShowWithRelations;
   searchParams: { walkthrough?: string };
@@ -183,6 +213,26 @@ export async function SettlePageV2({ data, searchParams }: Props) {
   const shareUrl = settlement
     ? await ensureSettlementShareLink(settlement.id)
     : "/shared/settlement/unavailable";
+
+  // PM-mobile expense link — auto-created on first settle-page visit so the
+  // walkthrough overlay has a token ready to text to the production manager.
+  const pmExpenseToken = await ensurePmExpenseShareLink(show.id);
+  const pmExpenseUrl = `/m/expense?token=${pmExpenseToken}`;
+
+  // Initial expense snapshot for the LiveExpensesPanel. The component will
+  // poll for new arrivals client-side; we just need to seed it with what's
+  // already in the DB.
+  const initialExpenses = expenses.map((e) => ({
+    id: e.id,
+    category: e.category,
+    amount: e.amount,
+    description: e.description,
+    approved: e.approved,
+    absorbedByVenue: e.absorbedByVenue,
+    source: (e.source ?? "manual") as "manual" | "pm_mobile",
+    enteredAt: e.enteredAt.toISOString(),
+    enteredByUserId: e.enteredByUserId,
+  }));
 
   // Agent signoff state — most recent share_link for this settlement carries
   // the canonical signoff status (open / agreed / questions).
@@ -527,6 +577,14 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 </CardContent>
               </Card>
 
+              {/* Live expenses — compact, polled from PM mobile uploads */}
+              <LiveExpensesPanel
+                showId={show.id}
+                initialExpenses={initialExpenses}
+                expenseCap={deal.expenseCap ?? null}
+                variant="compact"
+              />
+
               {/* Recent activity — compact, last 5 */}
               <div>
                 <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium mb-2 px-1">
@@ -567,6 +625,9 @@ export async function SettlePageV2({ data, searchParams }: Props) {
           trace={result.trace}
           initialAcks={acks}
           shareUrl={shareUrl}
+          pmExpenseUrl={pmExpenseUrl}
+          expenseCap={deal.expenseCap ?? null}
+          initialExpenses={initialExpenses}
           exitHref={`/shows/${show.id}/settle`}
         />
       )}

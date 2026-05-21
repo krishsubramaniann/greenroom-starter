@@ -24,11 +24,16 @@ import {
   CornerDownLeft,
   HelpCircle,
   Keyboard,
+  Smartphone,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TraceLine } from "@/components/settlement/TraceLine";
+import {
+  LiveExpensesPanel,
+  type LiveExpense,
+} from "@/components/expenses/LiveExpensesPanel";
 import type { TraceStep } from "@/lib/dealMathV2";
 import type { WalkthroughAck } from "@/db/schema";
 
@@ -49,6 +54,14 @@ type Props = {
   trace: TraceStep[];
   initialAcks: WalkthroughAck[];
   shareUrl: string;
+  /** Magic-link URL the production manager opens to upload receipts from
+   *  his phone. Surfaced in the overlay header with QR + copy button. */
+  pmExpenseUrl: string;
+  /** Deal expense cap — drives the cap-warning pill on the live panel. */
+  expenseCap: number | null;
+  /** Snapshot of expenses already on the show — LiveExpensesPanel polls
+   *  for newer rows after this initial render. */
+  initialExpenses: LiveExpense[];
   exitHref: string;
 };
 
@@ -88,6 +101,9 @@ export function Walkthrough({
   trace,
   initialAcks,
   shareUrl,
+  pmExpenseUrl,
+  expenseCap,
+  initialExpenses,
   exitHref,
 }: Props) {
   const router = useRouter();
@@ -114,6 +130,8 @@ export function Walkthrough({
   const [endScreenUrl, setEndScreenUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showKeyHints, setShowKeyHints] = useState(true);
+  const [showPmLink, setShowPmLink] = useState(false);
+  const [pmLinkCopied, setPmLinkCopied] = useState(false);
 
   const ackedCount = ackMap.size;
   const totalCount = trace.length;
@@ -332,6 +350,24 @@ export function Walkthrough({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => {
+                setShowPmLink((v) => !v);
+                if (!showPmLink) setShowKeyHints(false);
+              }}
+              className={cn(
+                "text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded",
+                "ring-1 ring-inset transition-colors",
+                showPmLink
+                  ? "bg-brand-50 text-brand-800 ring-brand-200"
+                  : "text-ink-500 hover:text-ink-800 ring-ink-200/60 bg-white",
+              )}
+              aria-label="Send PM link"
+            >
+              <Smartphone className="size-3.5" />
+              {showPmLink ? "Hide PM link" : "Send to PM"}
+            </button>
+            <button
+              type="button"
               onClick={() => setShowKeyHints((v) => !v)}
               className="text-[11px] text-ink-500 hover:text-ink-800 inline-flex items-center gap-1"
               aria-label="Toggle keyboard shortcuts"
@@ -351,7 +387,7 @@ export function Walkthrough({
             style={{ width: `${progressPct}%` }}
           />
         </div>
-        {showKeyHints && !endScreenUrl && (
+        {showKeyHints && !endScreenUrl && !showPmLink && (
           <div className="bg-ink-50/60 border-b border-ink-100">
             <div className="max-w-4xl mx-auto px-8 py-1.5 text-[11px] text-ink-500 flex items-center gap-4 flex-wrap">
               <span className="inline-flex items-center gap-1">
@@ -371,6 +407,25 @@ export function Walkthrough({
               <span className="text-ink-400">Acked lines are skipped during keyboard nav.</span>
             </div>
           </div>
+        )}
+        {showPmLink && !endScreenUrl && (
+          <PmLinkPanel
+            pmExpenseUrl={pmExpenseUrl}
+            copied={pmLinkCopied}
+            onCopy={async () => {
+              const url =
+                typeof window !== "undefined"
+                  ? `${window.location.origin}${pmExpenseUrl}`
+                  : pmExpenseUrl;
+              try {
+                await navigator.clipboard.writeText(url);
+                setPmLinkCopied(true);
+                setTimeout(() => setPmLinkCopied(false), 1500);
+              } catch {
+                setPmLinkCopied(false);
+              }
+            }}
+          />
         )}
       </header>
 
@@ -497,6 +552,18 @@ export function Walkthrough({
             );
           })}
 
+          {/* Live PM-mobile expenses — polls server every 5s. New uploads
+              from the PM's phone appear here in real time, with a green
+              "just now" pill and a brief background flash. */}
+          <div className="pt-6">
+            <LiveExpensesPanel
+              showId={showId}
+              initialExpenses={initialExpenses}
+              expenseCap={expenseCap}
+              variant="full"
+            />
+          </div>
+
           {allAcked && !endScreenUrl && (
             <div className="pt-8 flex flex-col items-center gap-4">
               <p className="text-[14px] text-ink-600 text-center">
@@ -517,6 +584,71 @@ export function Walkthrough({
           )}
         </main>
       )}
+    </div>
+  );
+}
+
+function PmLinkPanel({
+  pmExpenseUrl,
+  copied,
+  onCopy,
+}: {
+  pmExpenseUrl: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  const fullUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}${pmExpenseUrl}`
+      : pmExpenseUrl;
+  // External QR service — keeps deps zero. Same pattern as the
+  // end-of-walkthrough share QR.
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
+    fullUrl,
+  )}&size=120x120&margin=2`;
+
+  return (
+    <div className="bg-brand-50/40 border-b border-brand-100">
+      <div className="max-w-4xl mx-auto px-8 py-4 flex items-center gap-5 flex-wrap">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={qrSrc}
+          alt="QR code for the PM expense link"
+          width={96}
+          height={96}
+          className="rounded border border-brand-200 bg-white shrink-0"
+        />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="text-[11px] uppercase tracking-wider text-brand-800 font-medium">
+            PM expense link
+          </div>
+          <p className="text-[12px] text-ink-700 leading-relaxed">
+            Text this URL to the production manager. Receipts logged on the
+            phone show up in the panel below within 5 seconds.
+          </p>
+          <div className="rounded-md border border-ink-200 bg-white px-3 py-1.5 font-mono text-[11px] text-ink-700 break-all">
+            {pmExpenseUrl}
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 shrink-0">
+          <Link href={pmExpenseUrl} target="_blank" rel="noreferrer">
+            <Button variant="secondary" className="gap-1.5 w-full">
+              Open form
+            </Button>
+          </Link>
+          <Button onClick={onCopy} variant="brand" className="gap-1.5">
+            {copied ? (
+              <>
+                <Check className="size-3.5" /> Copied
+              </>
+            ) : (
+              <>
+                <Copy className="size-3.5" /> Copy link
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

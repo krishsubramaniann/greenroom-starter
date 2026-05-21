@@ -15,6 +15,13 @@
       "when": 1779329839995,
       "tag": "0001_v2_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779397765374,
+      "tag": "0002_pm_expense",
+      "breakpoints": true
     }
   ]
 }

@@ -1545,8 +1545,37 @@ async function main() {
     internalNotes: "Fresh booking — deal email from Sarah expected this week.",
     createdAt: hollowOakCreated,
   });
-  // Deliberately no deal, settlement, tickets, expenses, or comps for
-  // Hollow Oak — the demo creates these live.
+  // Deliberately no deal, settlement, tickets, or comps for Hollow Oak —
+  // those get created during the live capture / settle flow. But seed two
+  // "earlier in the day" expenses so the walkthrough has history when
+  // Mariana opens it; live PM-mobile additions during the show append to
+  // these.
+  expensesToInsert.push(
+    {
+      id: "exp_hollow_oak_sound",
+      showId: hollowOakShowId,
+      category: "sound",
+      amount: 150,
+      description: "Sound tech — load-in",
+      approved: true,
+      absorbedByVenue: false,
+      enteredByUserId: MARIANA_ID,
+      enteredAt: new Date(`${hollowOakDate}T18:30:00-06:00`),
+      source: "manual",
+    },
+    {
+      id: "exp_hollow_oak_production",
+      showId: hollowOakShowId,
+      category: "production",
+      amount: 75,
+      description: "Production add — drum riser shim",
+      approved: true,
+      absorbedByVenue: false,
+      enteredByUserId: MARIANA_ID,
+      enteredAt: new Date(`${hollowOakDate}T19:15:00-06:00`),
+      source: "manual",
+    },
+  );
 
   // Bulk insert
   console.log(`   Inserting ${showsToInsert.length} shows…`);
@@ -1590,6 +1619,20 @@ async function main() {
       signoffByName: "Andrea Pelletier",
       signoffAt: new Date("2025-03-15T08:47:00-06:00"),
     },
+    // Hollow Oak PM-mobile expense link. Stable token so the demo URL is the
+    // same across db:reset runs — Mariana texts this to the production
+    // manager at the start of the show.
+    {
+      id: "pm-hollowoak-jun19",
+      resourceType: "pm_expense" as const,
+      resourceId: hollowOakShowId,
+      createdAt: hollowOakCreated,
+      accessedAt: null,
+      signoffStatus: "open" as const,
+      signoffText: null,
+      signoffByName: null,
+      signoffAt: null,
+    },
   ];
   await db.insert(shareLinks).values(shareLinksToInsert);
 
@@ -1625,6 +1668,8 @@ async function main() {
   console.log(`   1 named dispute (Coastal Spell, March 2025) injected — now resolved upstream via V2 deal capture`);
   console.log(`   1 future show (Pale Lake, April 2026) injected in deal-locked state`);
   console.log(`   1 fresh show (Hollow Oak, June 19 2026) injected with no deal — for live capture demo`);
+  console.log(`   2 historical expenses seeded for Hollow Oak (Sound tech + Production)`);
+  console.log(`   1 PM-mobile expense link seeded (pm-hollowoak-jun19) for the live walkthrough`);
   console.log(`   ${allActivity.length} activity events (${coastalSpellActivitySeed.length} Coastal Spell, ${paleLakeActivitySeed.length} Pale Lake)`);
   console.log(`   ${shareLinksToInsert.length} share links (deal + settlement magic-link tokens)`);
 }

@@ -215,6 +215,14 @@ export const expenses = sqliteTable("expenses", {
     .default(false),
   enteredByUserId: text("entered_by_user_id").references(() => users.id),
   enteredAt: integer("entered_at", { mode: "timestamp" }).notNull(),
+  /**
+   * Origin marker for the row: "manual" = entered by Mariana via desktop;
+   * "pm_mobile" = pushed in from the production-manager magic-link form
+   * (/m/expense?token=...). Drives the "from production manager · just now"
+   * pill on the live walkthrough panel. Nullable for backward compat with
+   * pre-Phase-7 rows.
+   */
+  source: text("source", { enum: ["manual", "pm_mobile"] }),
 });
 
 // -------- Settlements --------
@@ -320,7 +328,9 @@ export const walkthroughAcks = sqliteTable("walkthrough_acks", {
  */
 export const shareLinks = sqliteTable("share_links", {
   id: text("id").primaryKey(),
-  resourceType: text("resource_type", { enum: ["deal", "settlement"] }).notNull(),
+  resourceType: text("resource_type", {
+    enum: ["deal", "settlement", "pm_expense"],
+  }).notNull(),
   resourceId: text("resource_id").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   accessedAt: integer("accessed_at", { mode: "timestamp" }),
