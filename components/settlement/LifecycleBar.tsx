@@ -205,11 +205,18 @@ export function deriveLifecycleState(input: {
     outcome = { label: "Finalized", state: "pending" };
   }
 
-  // Stage 7 — Paid / On hold / pending. GM approval wins over hold so the
-  // approve-after-hold path correctly green-lights this stop. A standalone
-  // hold (no approve) holds amber. Nothing decided yet stays grey.
+  // Stage 7 — Paid only when the GM has explicitly approved the wire. The
+  // agent's acknowledgement (which flips settlement.status to "finalized")
+  // is captured in stage 6, NOT here — paying happens after the GM signs
+  // off, never before. A standalone hold holds amber; nothing else moves
+  // the dot off grey.
+  //
+  // Note `paidAt` is set as a side-effect of gm-approve, so checking
+  // gmApprovedAt is sufficient. Don't piggyback on `settlementStatus ===
+  // "finalized"` here — that would mean agent acknowledge alone lights
+  // the dot, which is the bug Phase 8.6 is here to fix.
   let paid: LifecycleState["paid"];
-  if (gmApprovedAt || paidAt) {
+  if (gmApprovedAt) {
     paid = { label: "Paid", state: "complete" };
   } else if (gmHeldAt) {
     paid = {
@@ -217,11 +224,14 @@ export function deriveLifecycleState(input: {
       state: "warning",
       reason: gmHoldReason ?? undefined,
     };
-  } else if (settlementStatus === "finalized") {
-    paid = { label: "Paid", state: "active" };
   } else {
     paid = { label: "Paid", state: "pending" };
   }
+  // paidAt is intentionally not consulted — kept on the input shape for
+  // symmetry with callers but settlementStatus "paid" / paidAt aren't
+  // signals we trust here. gmApprovedAt is the canonical "wire released"
+  // marker; everything else flows from it.
+  void paidAt;
 
   return {
     dealDraft,

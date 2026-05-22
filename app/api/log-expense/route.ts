@@ -17,6 +17,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { db } from "@/db";
 import {
   shareLinks,
@@ -37,27 +39,75 @@ const CATEGORIES = new Set([
   "other",
 ]);
 
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
 type Body = {
   token?: string;
   vendor?: string;
   amount?: number;
   category?: string;
   notes?: string;
-  /** Filename or stand-in URL — we don't store the actual file in the demo. */
+  /** Legacy: filename string. Kept for back-compat with any JSON callers
+   *  (the real-upload path goes through multipart/form-data instead). */
   receiptFilename?: string | null;
-  /** PM's name for activity attribution. Defaults to "Production manager". */
   enteredByName?: string;
 };
 
-export async function POST(req: NextRequest) {
-  let body: Body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+type ParsedRequest = {
+  fields: Body;
+  file: File | null;
+};
 
-  const { token, vendor, amount, category, notes, receiptFilename } = body;
+/** Parse the incoming request as either multipart/form-data (real uploads
+ *  from the PM mobile form) or application/json (back-compat with curl /
+ *  existing JSON callers). */
+async function parseRequest(req: NextRequest): Promise<ParsedRequest | null> {
+  const ct = req.headers.get("content-type") ?? "";
+  if (ct.includes("multipart/form-data")) {
+    const fd = await req.formData();
+    const file = fd.get("receipt");
+    const amount = fd.get("amount");
+    return {
+      fields: {
+        token: (fd.get("token") as string | null) ?? undefined,
+        vendor: (fd.get("vendor") as string | null) ?? undefined,
+        amount: amount != null ? Number(amount) : undefined,
+        category: (fd.get("category") as string | null) ?? undefined,
+        notes: (fd.get("notes") as string | null) ?? undefined,
+        enteredByName:
+          (fd.get("enteredByName") as string | null) ?? undefined,
+      },
+      file: file instanceof File && file.size > 0 ? file : null,
+    };
+  }
+  try {
+    const body = (await req.json()) as Body;
+    return { fields: body, file: null };
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeFilename(name: string): string {
+  // Strip path separators + most special chars; keep extension dot.
+  const cleaned = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+  return cleaned.length > 0 ? cleaned : "receipt";
+}
+
+export async function POST(req: NextRequest) {
+  const parsed = await parseRequest(req);
+  if (!parsed) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  const body = parsed.fields;
+  const { token, vendor, amount, category, notes } = body;
   if (!token || !vendor?.trim() || amount == null || !category) {
     return NextResponse.json(
       {
@@ -107,23 +157,46 @@ export async function POST(req: NextRequest) {
   const now = new Date();
   const expenseId = `exp_${randomUUID()}`;
 
-  // Compose description from vendor + optional notes. The receipt path
-  // (set below) is stored on its own column — no more "📷 sound.png" tail
-  // glued onto the description; that hack is dead post-Phase-8.5.
+  // Compose description from vendor + optional notes.
   const descriptionParts: string[] = [];
   descriptionParts.push(vendor.trim());
   if (notes?.trim()) descriptionParts.push(notes.trim());
   const description = descriptionParts.join(" · ");
 
-  // Demo: ignore the uploaded filename and assign a canned receipt by
-  // category. Unmapped categories fall back to the production receipt.
+  // Receipt: real upload preferred, canned-by-category as fallback.
   const CATEGORY_RECEIPT: Record<string, string> = {
     sound: "/receipts/sound.svg",
     hospitality: "/receipts/hospitality.svg",
     security: "/receipts/security.svg",
     production: "/receipts/production.svg",
   };
-  const receiptPath = CATEGORY_RECEIPT[category] ?? "/receipts/production.svg";
+  let receiptPath = CATEGORY_RECEIPT[category] ?? "/receipts/production.svg";
+
+  if (parsed.file) {
+    const file = parsed.file;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: `Receipt too large (${file.size} > ${MAX_UPLOAD_BYTES})` },
+        { status: 413 },
+      );
+    }
+    // mime guard — be permissive about empty type (some HEIC uploads
+    // come through without one) but reject explicitly non-image types.
+    if (file.type && !ALLOWED_MIME.has(file.type)) {
+      return NextResponse.json(
+        { error: `Unsupported receipt type: ${file.type}` },
+        { status: 415 },
+      );
+    }
+    const ts = Date.now();
+    const safe = sanitizeFilename(file.name || "receipt");
+    const dir = join(process.cwd(), "public", "uploads", "receipts", showId);
+    await mkdir(dir, { recursive: true });
+    const filename = `${ts}-${safe}`;
+    const buf = Buffer.from(await file.arrayBuffer());
+    await writeFile(join(dir, filename), buf);
+    receiptPath = `/uploads/receipts/${showId}/${filename}`;
+  }
 
   await db.insert(expenses).values({
     id: expenseId,
@@ -172,7 +245,7 @@ export async function POST(req: NextRequest) {
       category,
       vendor: vendor.trim(),
       notes: notes?.trim() ?? null,
-      receipt_filename: receiptFilename ?? null,
+      receipt_path: receiptPath,
       surface: "pm_mobile",
     }),
     occurredAt: now,

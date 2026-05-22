@@ -40,7 +40,7 @@ export function ExpenseForm({
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<Category>("sound");
   const [notes, setNotes] = useState("");
-  const [receiptFilename, setReceiptFilename] = useState<string | null>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(initialCount);
@@ -63,7 +63,7 @@ export function ExpenseForm({
     setAmount("");
     setCategory("sound");
     setNotes("");
-    setReceiptFilename(null);
+    setReceiptFile(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -72,17 +72,20 @@ export function ExpenseForm({
     setSubmitting(true);
     setError(null);
     try {
+      // FormData (not JSON) so the actual image bytes round-trip to the
+      // server and end up under /public/uploads/. No file attached →
+      // server falls back to a canned SVG by category.
+      const fd = new FormData();
+      fd.append("token", token);
+      fd.append("vendor", vendor.trim());
+      fd.append("amount", String(parseFloat(amount)));
+      fd.append("category", category);
+      if (notes.trim()) fd.append("notes", notes.trim());
+      if (receiptFile) fd.append("receipt", receiptFile);
+
       const res = await fetch("/api/log-expense", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          vendor: vendor.trim(),
-          amount: parseFloat(amount),
-          category,
-          notes: notes.trim() || undefined,
-          receiptFilename,
-        }),
+        body: fd,
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -215,14 +218,16 @@ export function ExpenseForm({
           htmlFor="receipt"
           className={cn(
             "flex items-center gap-2 h-11 px-3 rounded-lg border border-dashed cursor-pointer transition-colors",
-            receiptFilename
+            receiptFile
               ? "border-brand-400 bg-brand-700/20 text-white"
               : "border-ink-600 bg-ink-800/60 text-ink-400",
           )}
         >
           <Camera className="size-4" />
           <span className="text-[13px] truncate">
-            {receiptFilename ?? "Tap to attach"}
+            {receiptFile
+              ? `${receiptFile.name} · ${(receiptFile.size / 1024).toFixed(0)} KB`
+              : "Tap to attach (optional)"}
           </span>
         </label>
         <input
@@ -233,7 +238,7 @@ export function ExpenseForm({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            setReceiptFilename(f ? f.name : null);
+            setReceiptFile(f ?? null);
           }}
         />
       </Field>
