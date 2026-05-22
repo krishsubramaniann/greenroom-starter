@@ -69,6 +69,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Idempotency guard — re-tapping [Approve] on an already-approved link
+  // is a no-op error, not a silent re-write. Surfaces to the GM mobile
+  // page so the UI can route to the already-approved state.
+  if (settlement.gmApprovedAt) {
+    return NextResponse.json(
+      { error: "Already approved" },
+      { status: 400 },
+    );
+  }
+
+  // Capture hold provenance BEFORE we clear it so the activity event
+  // payload records "this approval released a prior hold and the reason
+  // was X." Mariana's right rail uses this to render the
+  // "previously held: '<reason>'" stamp on the Paid card.
+  const releasedFromHold = settlement.gmHeldAt != null;
+  const previousHoldReason = settlement.gmHoldReason;
+  const previousHeldAt = settlement.gmHeldAt;
+
   // GM identity — lifted from the seeded GM user when present.
   const [gmUser] = await db
     .select()
@@ -116,11 +134,18 @@ export async function POST(req: NextRequest) {
     actorType: "user",
     actorName: gmName,
     actorRole: GM_ACTOR_ROLE,
-    summary: `${gmName} approved · wire scheduled for release`,
+    summary: releasedFromHold
+      ? `${gmName} released hold · wire scheduled for release`
+      : `${gmName} approved · wire scheduled for release`,
     payloadJson: JSON.stringify({
       total_to_artist: settlement.totalToArtist,
       settlement_id: settlement.id,
       surface: "gm_mobile",
+      releasedFromHold,
+      previousHoldReason: previousHoldReason ?? null,
+      previousHeldAt: previousHeldAt
+        ? previousHeldAt.toISOString()
+        : null,
     }),
     occurredAt: now,
   });
@@ -130,5 +155,7 @@ export async function POST(req: NextRequest) {
     approvedAt: now.toISOString(),
     settlementStatus: "paid",
     gmName,
+    releasedFromHold,
+    previousHoldReason: previousHoldReason ?? null,
   });
 }

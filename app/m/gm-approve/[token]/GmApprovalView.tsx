@@ -166,57 +166,42 @@ export function GmApprovalView({
     }
   }
 
-  // Confirmation states
-  if (approvedAt) {
-    return (
-      <div className="min-h-screen bg-ink-900 text-white">
-        <div className="mx-auto max-w-[420px] px-4 py-10 text-center">
-          <div className="inline-flex items-center justify-center size-14 rounded-full bg-brand-600 text-white">
-            <Check className="size-7" />
-          </div>
-          <h1 className="text-[22px] font-display text-white mt-4">
-            Approved · Wire scheduled for release
-          </h1>
-          <p className="text-[12.5px] text-ink-300 mt-2">
-            {artist?.name ?? "Show"} settlement · {formatMoney(result.totalToArtist)}
-          </p>
-          <p className="text-[10.5px] text-ink-500 mt-3">
-            {dateTimeLine(approvedAt)}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // State machine: fresh (no decision yet) / held (paused, awaiting action)
+  // / approved (terminal). All three render the same page chrome — header,
+  // big number, summary, approval context — with different status pills,
+  // an optional hold-details panel, and different footer CTAs.
+  const gmState: "fresh" | "held" | "approved" = approvedAt
+    ? "approved"
+    : heldAt
+      ? "held"
+      : "fresh";
 
-  if (heldAt) {
-    return (
-      <div className="min-h-screen bg-ink-900 text-white">
-        <div className="mx-auto max-w-[420px] px-4 py-10 text-center">
-          <div className="inline-flex items-center justify-center size-14 rounded-full bg-amber-600 text-white">
-            <Pause className="size-7" />
-          </div>
-          <h1 className="text-[22px] font-display text-white mt-4">
-            On hold for review
-          </h1>
-          <p className="text-[12.5px] text-ink-300 mt-2">
-            Mariana will see your note on her settle page.
-          </p>
-          {holdReason && (
-            <p className="text-[11.5px] text-ink-400 italic mt-3 max-w-prose mx-auto">
-              “{holdReason}”
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Main approval view
   return (
     <div className="min-h-screen bg-ink-900 text-white">
-      <div className="mx-auto max-w-[420px] px-4 py-5 pb-32">
-        <div className="text-[10.5px] uppercase tracking-wider text-ink-400 font-medium">
-          Wire approval
+      <div
+        className={cn(
+          "mx-auto max-w-[420px] px-4 py-5",
+          gmState === "approved" ? "pb-12" : "pb-32",
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <div className="text-[10.5px] uppercase tracking-wider text-ink-400 font-medium">
+            {gmState === "approved"
+              ? "Wire approved"
+              : gmState === "held"
+                ? "Wire on hold"
+                : "Wire approval"}
+          </div>
+          {gmState === "approved" && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-900/60 text-brand-200 ring-1 ring-inset ring-brand-700">
+              <Check className="size-2.5" /> approved
+            </span>
+          )}
+          {gmState === "held" && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/60 text-amber-200 ring-1 ring-inset ring-amber-700">
+              <Pause className="size-2.5" /> on hold
+            </span>
+          )}
         </div>
         <h1 className="text-[20px] font-display text-white mt-1 leading-tight">
           {artist?.name ?? "Show"}
@@ -297,6 +282,43 @@ export function GmApprovalView({
           />
         </section>
 
+        {/* On-hold details (state = held) */}
+        {gmState === "held" && (
+          <section className="mt-5 rounded-lg border border-amber-700 bg-amber-950/30 p-4">
+            <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-wider text-amber-300 font-medium">
+              <Pause className="size-3" />
+              On hold since {dateTimeLine(heldAt)}
+            </div>
+            {holdReason && (
+              <p className="text-[12.5px] text-amber-100 italic mt-2 leading-relaxed">
+                “{holdReason}”
+              </p>
+            )}
+            <p className="text-[11px] text-amber-300/80 mt-2">
+              Mariana sees this note on her settle page. Release the hold to
+              approve, or leave it on hold while she addresses the question.
+            </p>
+          </section>
+        )}
+
+        {/* Approval stamp (state = approved) */}
+        {gmState === "approved" && (
+          <section className="mt-5 rounded-lg border border-brand-700 bg-brand-950/30 p-4">
+            <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-wider text-brand-300 font-medium">
+              <Check className="size-3" /> Wire scheduled for release
+            </div>
+            <p className="text-[12.5px] text-brand-100 mt-2 leading-relaxed">
+              Approved by{" "}
+              <strong className="text-white">Marcus Chen</strong> ·{" "}
+              {dateTimeLine(approvedAt)}
+            </p>
+            <p className="text-[11px] text-brand-300/80 mt-2">
+              You can close this tab. Mariana&apos;s page reflects the
+              approval within a few seconds.
+            </p>
+          </section>
+        )}
+
         {error && (
           <div className="mt-4 text-[12px] text-rose-300 bg-rose-950/40 border border-rose-800 rounded-lg px-3 py-2">
             {error}
@@ -304,93 +326,136 @@ export function GmApprovalView({
         )}
       </div>
 
-      {/* Sticky footer CTAs */}
-      <footer className="fixed bottom-0 inset-x-0 z-20 bg-ink-900/95 backdrop-blur border-t border-ink-700">
-        <div className="mx-auto max-w-[420px] px-4 py-3">
-          {holdOpen ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-[11px] uppercase tracking-wider text-amber-300 font-medium">
-                  Why are you holding this?
+      {/* Sticky footer CTAs — state-driven. Approved state has no footer. */}
+      {gmState !== "approved" && (
+        <footer className="fixed bottom-0 inset-x-0 z-20 bg-ink-900/95 backdrop-blur border-t border-ink-700">
+          <div className="mx-auto max-w-[420px] px-4 py-3">
+            {holdOpen ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wider text-amber-300 font-medium">
+                    Why are you holding this?
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHoldOpen(false);
+                      setHoldDraft("");
+                    }}
+                    className="text-ink-400 hover:text-white"
+                    aria-label="Close"
+                  >
+                    <X className="size-4" />
+                  </button>
                 </div>
+                <textarea
+                  autoFocus
+                  value={holdDraft}
+                  onChange={(e) => setHoldDraft(e.target.value)}
+                  rows={3}
+                  placeholder="What's the question? (Mariana sees this)"
+                  className="w-full px-3 py-2 rounded bg-ink-800 text-white text-[13px] border border-ink-700 placeholder-ink-500 focus:outline-none focus:border-amber-400 resize-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleHold}
+                  disabled={!holdDraft.trim() || busy === "hold"}
+                  className={cn(
+                    "w-full h-11 rounded-lg text-[13.5px] font-medium flex items-center justify-center gap-2",
+                    holdDraft.trim() && busy !== "hold"
+                      ? "bg-amber-600 hover:bg-amber-500 text-white"
+                      : "bg-ink-700 text-ink-500",
+                  )}
+                >
+                  {busy === "hold" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    "Send hold to Mariana"
+                  )}
+                </button>
+              </div>
+            ) : gmState === "held" ? (
+              // On-hold actionable state: release the hold (which approves) or
+              // leave it on hold. "Continue hold" is no-op visual confirmation —
+              // the GM can just close the tab.
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={busy === "approve"}
+                  className={cn(
+                    "w-full h-12 rounded-lg text-[14.5px] font-medium flex items-center justify-center gap-2",
+                    busy === "approve"
+                      ? "bg-ink-700 text-ink-500"
+                      : "bg-brand-600 hover:bg-brand-500 text-white",
+                  )}
+                >
+                  {busy === "approve" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Releasing hold…
+                    </>
+                  ) : (
+                    <>
+                      <Check className="size-4" />
+                      Release hold &amp; approve &amp; release wire
+                    </>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setHoldOpen(false);
-                    setHoldDraft("");
+                    /* no-op — keeping the hold in place. The GM can just
+                       close the tab; Mariana's view is unchanged. */
                   }}
-                  className="text-ink-400 hover:text-white"
-                  aria-label="Close"
+                  className="w-full h-11 rounded-lg bg-ink-800 hover:bg-ink-700 text-ink-200 text-[13.5px] font-medium flex items-center justify-center gap-2 border border-ink-700"
                 >
-                  <X className="size-4" />
+                  <Pause className="size-4" />
+                  Continue hold
                 </button>
               </div>
-              <textarea
-                autoFocus
-                value={holdDraft}
-                onChange={(e) => setHoldDraft(e.target.value)}
-                rows={3}
-                placeholder="What's the question? (Mariana sees this)"
-                className="w-full px-3 py-2 rounded bg-ink-800 text-white text-[13px] border border-ink-700 placeholder-ink-500 focus:outline-none focus:border-amber-400 resize-none"
-              />
-              <button
-                type="button"
-                onClick={handleHold}
-                disabled={!holdDraft.trim() || busy === "hold"}
-                className={cn(
-                  "w-full h-11 rounded-lg text-[13.5px] font-medium flex items-center justify-center gap-2",
-                  holdDraft.trim() && busy !== "hold"
-                    ? "bg-amber-600 hover:bg-amber-500 text-white"
-                    : "bg-ink-700 text-ink-500",
-                )}
-              >
-                {busy === "hold" ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Sending…
-                  </>
-                ) : (
-                  "Send hold to Mariana"
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={busy === "approve"}
-                className={cn(
-                  "w-full h-12 rounded-lg text-[15px] font-medium flex items-center justify-center gap-2",
-                  busy === "approve"
-                    ? "bg-ink-700 text-ink-500"
-                    : "bg-brand-600 hover:bg-brand-500 text-white",
-                )}
-              >
-                {busy === "approve" ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Releasing wire…
-                  </>
-                ) : (
-                  <>
-                    <Check className="size-4" />
-                    Approve &amp; release wire
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setHoldOpen(true)}
-                className="w-full h-11 rounded-lg bg-ink-800 hover:bg-ink-700 text-ink-200 text-[13.5px] font-medium flex items-center justify-center gap-2 border border-ink-700"
-              >
-                <Clock className="size-4" />
-                Hold for review
-              </button>
-            </div>
-          )}
-        </div>
-      </footer>
+            ) : (
+              // Fresh state — original Approve / Hold CTAs.
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={busy === "approve"}
+                  className={cn(
+                    "w-full h-12 rounded-lg text-[15px] font-medium flex items-center justify-center gap-2",
+                    busy === "approve"
+                      ? "bg-ink-700 text-ink-500"
+                      : "bg-brand-600 hover:bg-brand-500 text-white",
+                  )}
+                >
+                  {busy === "approve" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Releasing wire…
+                    </>
+                  ) : (
+                    <>
+                      <Check className="size-4" />
+                      Approve &amp; release wire
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHoldOpen(true)}
+                  className="w-full h-11 rounded-lg bg-ink-800 hover:bg-ink-700 text-ink-200 text-[13.5px] font-medium flex items-center justify-center gap-2 border border-ink-700"
+                >
+                  <Clock className="size-4" />
+                  Hold for review
+                </button>
+              </div>
+            )}
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

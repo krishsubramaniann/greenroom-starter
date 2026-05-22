@@ -294,6 +294,32 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     .orderBy(desc(activityEventsTable.occurredAt))
     .limit(20);
 
+  // "Previously held" provenance: when the GM's approval released a prior
+  // hold, the gm_approved activity event payload carries
+  // releasedFromHold=true + previousHoldReason. Surface that on the right
+  // rail Paid card so reviewers can trace the chain.
+  const heldThenApproved = (() => {
+    const approved = recentActivity.find(
+      (e) => e.eventType === "gm_approved",
+    );
+    if (!approved?.payloadJson) return null;
+    try {
+      const payload = JSON.parse(approved.payloadJson) as {
+        releasedFromHold?: boolean;
+        previousHoldReason?: string | null;
+        previousHeldAt?: string | null;
+      };
+      if (!payload.releasedFromHold) return null;
+      return {
+        reason: payload.previousHoldReason ?? null,
+        heldAt: payload.previousHeldAt ?? null,
+        releasedAt: approved.occurredAt,
+      };
+    } catch {
+      return null;
+    }
+  })();
+
   // Deal share link accessedAt drives the "Deal in review" lifecycle stage.
   const [dealShareLink] = await db
     .select()
@@ -476,7 +502,9 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 </Card>
               )}
 
-              {/* Paid confirmation — surfaces once the GM has approved */}
+              {/* Paid confirmation — surfaces once the GM has approved.
+                  When the approval released a prior hold, also surface the
+                  "previously held" provenance line so the chain is visible. */}
               {settlement?.gmApprovedAt && (
                 <Card accent="brand">
                   <CardContent className="px-4 py-3">
@@ -494,6 +522,22 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                         minute: "2-digit",
                       })}
                     </div>
+                    {heldThenApproved && (
+                      <div className="text-[11px] text-amber-800/90 mt-2 pt-2 border-t border-brand-100">
+                        previously held
+                        {heldThenApproved.reason
+                          ? `: "${heldThenApproved.reason}"`
+                          : ""}{" "}
+                        · released{" "}
+                        {new Date(heldThenApproved.releasedAt).toLocaleString(
+                          [],
+                          {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          },
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}

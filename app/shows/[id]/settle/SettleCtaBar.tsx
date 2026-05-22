@@ -488,29 +488,63 @@ export function SettleCtaBar({
           </div>
           <Button
             variant={
-              canSendGm && !gmPanelOpen && !gmApproved ? "brand" : "secondary"
+              gmApproved
+                ? "secondary"
+                : gmHeld
+                  ? gmPanelOpen
+                    ? "secondary"
+                    : "brand"
+                  : canSendGm && !gmPanelOpen
+                    ? "brand"
+                    : "secondary"
             }
-            disabled={!canSendGm || gmApprovalUrl == null || gmApproved}
+            disabled={gmApprovalUrl == null || (!canSendGm && !gmHeld)}
             onClick={() => setGmPanelOpen((v) => !v)}
             className="gap-1.5"
           >
-            <ShieldCheck className="size-3.5" />
-            {gmApproved
-              ? "Approved"
-              : gmPanelOpen
-                ? "Hide GM link"
-                : "Send to GM for wire approval"}
+            {gmApproved ? (
+              <Check className="size-3.5 text-brand-700" />
+            ) : (
+              <ShieldCheck className="size-3.5" />
+            )}
+            {gmPanelOpen
+              ? gmApproved
+                ? "Hide GM approval"
+                : gmHeld
+                  ? "Hide GM link"
+                  : "Hide GM link"
+              : gmApproved
+                ? "View GM approval"
+                : gmHeld
+                  ? "Re-share GM link for review"
+                  : "Send to GM for wire approval"}
           </Button>
         </div>
       )}
-      {gmPanelOpen && gmApprovalUrl && !gmApproved && (
+      {gmPanelOpen && gmApprovalUrl && (
         <ShareLinkPanel
           url={gmApprovalUrl}
           copied={gmCopied}
           onCopy={() => copyTo(gmApprovalUrl, setGmCopied)}
           onClose={() => setGmPanelOpen(false)}
-          eyebrow="GM wire approval"
-          helpText="Text this to the GM. They'll see the totals + approval context and click Approve to release the wire."
+          eyebrow={
+            gmApproved
+              ? `GM wire approval · approved${
+                  gmApprovedAt ? ` · ${formatTime(gmApprovedAt)}` : ""
+                }`
+              : gmHeld
+                ? "GM wire approval · on hold · re-share if you've addressed the concern"
+                : "GM wire approval"
+          }
+          helpText={
+            gmApproved
+              ? "Already approved — the URL is here for audit. Marcus's view is locked at the post-approval state."
+              : gmHeld
+                ? `Marcus placed this on hold${
+                    gmHoldReason ? `: "${gmHoldReason}"` : "."
+                  } Once you've addressed it, ask him to open the link again — same URL, same QR.`
+                : "Text this to the GM. They'll see the totals + approval context and click Approve to release the wire."
+          }
           tone="gm"
         />
       )}
