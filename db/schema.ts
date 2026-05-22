@@ -94,6 +94,15 @@ export const shows = sqliteTable("shows", {
    * "PM submitted, ready for your review" banner on the settle page.
    */
   pmExpensesFinalizedAt: integer("pm_expenses_finalized_at", { mode: "timestamp" }),
+  /**
+   * Phase 9: gallery fixture. When true, the settle page renders the
+   * fully-paid artifact with all 7 lifecycle dots green, no CTAs, no
+   * polling — these are frozen view-only examples used by the Deal Types
+   * gallery to show how the engine handles each deal type.
+   */
+  isViewOnlyExample: integer("is_view_only_example", { mode: "boolean" })
+    .notNull()
+    .default(false),
 });
 
 // -------- Deals --------
@@ -147,6 +156,14 @@ export const deals = sqliteTable("deals", {
   confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
   compRulesJson: text("comp_rules_json"),
   externalId: text("external_id").unique(),
+  /**
+   * Phase 9: visible label override for deals whose math fits an existing
+   * dealType but whose contract semantics are framed differently (e.g.
+   * "Tier ratchet" stored as a vs deal + tier_ratchet bonus; "Walkout pot"
+   * stored as a vs deal with chosen guarantee/percentage). The deal terms
+   * panel + sidebar render this string instead of the canonical dealType.
+   */
+  dealTypeLabelOverride: text("deal_type_label_override"),
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

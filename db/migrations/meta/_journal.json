@@ -43,6 +43,13 @@
       "when": 1779465440701,
       "tag": "0005_receipt_path",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1779470623701,
+      "tag": "0006_view_only_gallery",
+      "breakpoints": true
     }
   ]
 }

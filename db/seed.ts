@@ -119,6 +119,12 @@ const ARTIST_DEFS: ArtistDef[] = [
   { id: "art_rookie_dive", name: "Rookie Dive", genre: "indie pop", tier: "C", recurrence: 4 },
   { id: "art_hollow_branch", name: "Hollow Branch", genre: "post rock", tier: "C", recurrence: 3 },
   { id: "art_hollow_oak", name: "Hollow Oak", genre: "indie folk", tier: "B", recurrence: 1 },
+  // Phase 9 — view-only gallery fixtures (deal type showcases).
+  { id: "art_iron_field", name: "Iron Field", genre: "folk rock", tier: "B", recurrence: 1 },
+  { id: "art_pine_bend", name: "Pine Bend", genre: "electronic", tier: "B", recurrence: 1 },
+  { id: "art_echo_range", name: "Echo Range", genre: "songwriter", tier: "C", recurrence: 1 },
+  { id: "art_maple_court", name: "Maple Court", genre: "indie rock", tier: "B", recurrence: 1 },
+  { id: "art_slate_harbor", name: "Slate Harbor", genre: "alt country", tier: "B", recurrence: 1 },
   { id: "art_low_rooms", name: "Low Rooms", genre: "indie rock", tier: "C", recurrence: 4 },
   { id: "art_navarro", name: "Navarro", genre: "songwriter", tier: "C", recurrence: 3 },
   { id: "art_stoneflower", name: "Stoneflower", genre: "indie folk", tier: "C", recurrence: 3 },
@@ -885,6 +891,13 @@ async function main() {
   // Pin Hollow Oak to Sarah Kim (WME) — easier agent, matches the demo
   // narrative for the fresh-show fixture.
   artistAgentMap.set("art_hollow_oak", "agent_sarah_kim");
+  // Gallery fixtures get a spread of agents so the agency slice in the
+  // metrics dashboard reads honestly. Pinned for determinism.
+  artistAgentMap.set("art_iron_field", "agent_tom_neary");
+  artistAgentMap.set("art_pine_bend", "agent_sarah_kim");
+  artistAgentMap.set("art_echo_range", "agent_daniel_hwang");
+  artistAgentMap.set("art_maple_court", "agent_sarah_kim");
+  artistAgentMap.set("art_slate_harbor", "agent_tom_neary");
 
   await db.insert(artists).values(
     ARTIST_DEFS.map((a) => ({
@@ -1551,6 +1564,310 @@ async function main() {
   // link (seeded below) and pmExpensesFinalizedAt staying null are the
   // only signals that this show is set up for the demo.
 
+  // -------- Phase 9 view-only gallery fixtures ----------------------------
+  // Five frozen, fully-paid settlements that power the /shows/deal-types
+  // gallery. Each one renders as a polished settle page (all 7 lifecycle
+  // dots green, no CTAs, no polling) so reviewers can see how the engine
+  // handles each deal type without running the live flow. All fixtures use
+  // engine-supported dealType values; tier_ratchet and walkout_pot are
+  // labeled via dealTypeLabelOverride on top of a vs deal underneath.
+  type GalleryFixture = {
+    showId: string;
+    artistId: string;
+    date: string;
+    dealType: "flat" | "vs" | "percentage_of_gross" | "percentage_of_net";
+    dealTypeLabelOverride: string | null;
+    guarantee: number | null;
+    percentage: number | null;
+    percentageBasis: "gross" | "net" | null;
+    expenseCap: number | null;
+    hospitalityCap: number | null;
+    sourceProse: string;
+    ticketsQty: number;
+    ticketFace: number;
+    ticketFees: number;
+    expenses: Array<{ category:
+      | "production" | "sound" | "lights" | "hospitality"
+      | "marketing" | "backline" | "security" | "other";
+      amount: number; description: string; receipt: string }>;
+    compsTotal: number; // sum across categories, split evenly
+    totalToArtist: number;
+    timeToSettleMin: number; // for activity-log realism + metrics
+    galleryNote: string; // "why this is interesting" copy on the gallery card
+  };
+
+  const galleryFixtures: GalleryFixture[] = [
+    {
+      showId: "show_iron_field_apr",
+      artistId: "art_iron_field",
+      date: "2026-04-08",
+      dealType: "flat",
+      dealTypeLabelOverride: null,
+      guarantee: 4500,
+      percentage: null,
+      percentageBasis: null,
+      expenseCap: null,
+      hospitalityCap: 400,
+      sourceProse:
+        "Hi Mariana,\n\nConfirming Iron Field for 4/8.\n\nDeal is $4,500 flat. Hospitality cap $400. No bonuses or recoups.\n\nBest, Tom",
+      ticketsQty: 380,
+      ticketFace: 22,
+      ticketFees: 0,
+      expenses: [
+        { category: "sound", amount: 150, description: "Sound Craft Nashville — FOH tech", receipt: "/receipts/sound.svg" },
+        { category: "security", amount: 400, description: "Hitech Security — 3 guards", receipt: "/receipts/security.svg" },
+        { category: "hospitality", amount: 380, description: "Blue Bird Grocery — green room", receipt: "/receipts/hospitality.svg" },
+        { category: "production", amount: 90, description: "East Nash Stageworks — riser shim", receipt: "/receipts/production.svg" },
+      ],
+      compsTotal: 12,
+      totalToArtist: 4500,
+      timeToSettleMin: 19,
+      galleryNote:
+        "Cleanest deal type to settle — no calculation surface, no expense cap math, no agent dispute risk. Bookers default to this for sub-tier-A artists where they're not gambling on attendance.",
+    },
+    {
+      showId: "show_pine_bend_mar",
+      artistId: "art_pine_bend",
+      date: "2026-03-22",
+      dealType: "percentage_of_gross",
+      dealTypeLabelOverride: null,
+      guarantee: null,
+      percentage: 0.35,
+      percentageBasis: "gross",
+      expenseCap: null,
+      hospitalityCap: 500,
+      sourceProse:
+        "Hi Mariana,\n\nConfirming Pine Bend for 3/22.\n\nDeal is 35% of gross. No expense cap (venue absorbs operational costs at this gross percentage). Hospitality cap $500.\n\nBest, Sarah",
+      ticketsQty: 410,
+      ticketFace: 28,
+      ticketFees: 0,
+      expenses: [
+        { category: "sound", amount: 200, description: "Sound Craft Nashville", receipt: "/receipts/sound.svg" },
+        { category: "security", amount: 500, description: "Hitech Security", receipt: "/receipts/security.svg" },
+        { category: "hospitality", amount: 480, description: "Blue Bird Grocery", receipt: "/receipts/hospitality.svg" },
+      ],
+      compsTotal: 15,
+      totalToArtist: 4018,
+      timeToSettleMin: 31,
+      galleryNote:
+        "Gross deals shift expense risk to the venue. Booker chooses this when they're confident attendance will be strong — they keep more upside but eat any expense overruns themselves.",
+    },
+    {
+      showId: "show_echo_range_feb",
+      artistId: "art_echo_range",
+      date: "2026-02-17",
+      dealType: "percentage_of_net",
+      dealTypeLabelOverride: null,
+      guarantee: null,
+      percentage: 0.65,
+      percentageBasis: "net",
+      expenseCap: 2200,
+      hospitalityCap: 500,
+      sourceProse:
+        "Hi Mariana,\n\nConfirming Echo Range for 2/17.\n\nDeal is 65% of net after expenses. Expenses capped at $2,200. Hospitality cap $500. No bonuses.\n\nBest, Daniel",
+      ticketsQty: 320,
+      ticketFace: 25,
+      ticketFees: 0,
+      expenses: [
+        { category: "sound", amount: 220, description: "Sound Craft Nashville", receipt: "/receipts/sound.svg" },
+        { category: "security", amount: 500, description: "Hitech Security", receipt: "/receipts/security.svg" },
+        { category: "hospitality", amount: 480, description: "Blue Bird Grocery", receipt: "/receipts/hospitality.svg" },
+        { category: "production", amount: 800, description: "East Nash Stageworks — riser + backline", receipt: "/receipts/production.svg" },
+      ],
+      compsTotal: 14,
+      totalToArtist: 3900, // 65% of (8000 − 2000)
+      timeToSettleMin: 35,
+      galleryNote:
+        "Net deals share risk — both sides pay attention to the expense cap because both feel the math. This one settled clean because Daniel Hwang signed off on every line item before the show.",
+    },
+    {
+      showId: "show_maple_court_apr",
+      artistId: "art_maple_court",
+      date: "2026-04-12",
+      dealType: "vs",
+      dealTypeLabelOverride: "Tier ratchet",
+      guarantee: 3000,
+      percentage: 0.7,
+      percentageBasis: "net",
+      expenseCap: 1800,
+      hospitalityCap: 500,
+      sourceProse:
+        "Hi Mariana,\n\nConfirming Maple Court for 4/12.\n\nDeal is $3,000 flat for sub-300 paid attendance. At 300+ paid, deal converts to 70% of net after expenses. Expenses capped at $1,800. Hospitality cap $500.\n\nBest, Sarah",
+      ticketsQty: 340,
+      ticketFace: 30,
+      ticketFees: 0,
+      expenses: [
+        { category: "sound", amount: 180, description: "Sound Craft Nashville", receipt: "/receipts/sound.svg" },
+        { category: "security", amount: 500, description: "Hitech Security", receipt: "/receipts/security.svg" },
+        { category: "hospitality", amount: 480, description: "Blue Bird Grocery", receipt: "/receipts/hospitality.svg" },
+        { category: "production", amount: 640, description: "East Nash Stageworks — riser + backline", receipt: "/receipts/production.svg" },
+      ],
+      compsTotal: 16,
+      totalToArtist: 5880, // 70% × ($10,200 − $1,800)
+      timeToSettleMin: 33,
+      galleryNote:
+        "The tier boundary is an ambiguity hotspot — booker and agent often disagree on whether tier 1 ($3,000) is forfeited entirely at the crossover or layered under the tier 2 percentage. The extractor flags this at deal capture so it never reaches settlement night.",
+    },
+    {
+      showId: "show_slate_harbor_may",
+      artistId: "art_slate_harbor",
+      date: "2026-05-10",
+      dealType: "vs",
+      dealTypeLabelOverride: "Walkout pot",
+      guarantee: 3500,
+      percentage: 0.6,
+      percentageBasis: "net",
+      expenseCap: 2000,
+      hospitalityCap: 500,
+      sourceProse:
+        "Hi Mariana,\n\nConfirming Slate Harbor for 5/10.\n\nWalkout pot deal: $3,500 base, 60% of net after operational costs. Expense cap $2,000. Hospitality cap $500.\n\nBest, Tom",
+      ticketsQty: 290,
+      ticketFace: 26,
+      ticketFees: 0,
+      expenses: [
+        { category: "sound", amount: 200, description: "Sound Craft Nashville", receipt: "/receipts/sound.svg" },
+        { category: "security", amount: 500, description: "Hitech Security", receipt: "/receipts/security.svg" },
+        { category: "hospitality", amount: 460, description: "Blue Bird Grocery", receipt: "/receipts/hospitality.svg" },
+        { category: "production", amount: 340, description: "East Nash Stageworks", receipt: "/receipts/production.svg" },
+      ],
+      compsTotal: 13,
+      totalToArtist: 3624, // 60% × ($7,540 − $1,500) ≈ $3,624
+      timeToSettleMin: 41,
+      galleryNote:
+        "Walkout pot deals are the venue's lever for risk-sharing on mid-tier shows. The base protects the artist; the percentage rewards the booker's curation when the show overperforms.",
+    },
+  ];
+
+  // Materialize each gallery fixture: show + deal + tickets + comps +
+  // expenses + settlement + share_links + activity events.
+  for (const g of galleryFixtures) {
+    const showDate = new Date(`${g.date}T20:00:00-06:00`); // 8 pm show
+    const showEnd = new Date(showDate.getTime() + 3 * 60 * 60 * 1000); // 11 pm
+    const settledAt = new Date(
+      showEnd.getTime() + g.timeToSettleMin * 60 * 1000,
+    );
+    const externalId = `CRES-${g.showId.replace(/^show_/, "").toUpperCase().slice(0, 12)}-${g.date}`;
+    const dealId = `deal_${g.showId}`;
+    const settlementId = `stl_${g.showId}`;
+    const grossGross = g.ticketsQty * g.ticketFace;
+
+    showsToInsert.push({
+      id: g.showId,
+      venueId: VENUE_ID,
+      artistId: g.artistId,
+      date: g.date,
+      status: "settled" as const,
+      doorsTime: "19:00",
+      setTime: "20:30",
+      roomConfig: "standing" as const,
+      internalNotes: null,
+      createdAt: new Date(showDate.getTime() - 60 * 86400 * 1000), // booked 60 days out
+      endOfShowAt: showEnd,
+      pmExpensesFinalizedAt: new Date(
+        showEnd.getTime() + (g.timeToSettleMin - 15) * 60 * 1000,
+      ),
+      isViewOnlyExample: true,
+    });
+
+    dealsToInsert.push({
+      id: dealId,
+      showId: g.showId,
+      dealType: g.dealType,
+      guaranteeAmount: g.guarantee,
+      percentage: g.percentage,
+      percentageBasis: g.percentageBasis,
+      expenseCap: g.expenseCap,
+      hospitalityCap: g.hospitalityCap,
+      bonusesJson: null,
+      dealNotesFreetext: null,
+      externalId,
+      sourceProse: g.sourceProse,
+      extractedAt: new Date(showDate.getTime() - 45 * 86400 * 1000),
+      confirmedAt: new Date(showDate.getTime() - 44 * 86400 * 1000),
+      recoupsJson: JSON.stringify([]),
+      ambiguitiesJson: JSON.stringify([]),
+      compRulesJson: null,
+      dealTypeLabelOverride: g.dealTypeLabelOverride,
+      createdAt: new Date(showDate.getTime() - 60 * 86400 * 1000),
+    });
+
+    ticketSalesToInsert.push({
+      id: `ts_${g.showId}`,
+      showId: g.showId,
+      qty: g.ticketsQty,
+      gross: grossGross,
+      fees: g.ticketFees,
+      capturedAt: showEnd,
+    });
+
+    // Three comp categories, evenly split.
+    const compCats: Array<"artist_gl" | "venue_staff" | "promo"> = [
+      "artist_gl",
+      "venue_staff",
+      "promo",
+    ];
+    const per = Math.floor(g.compsTotal / compCats.length);
+    const remainder = g.compsTotal - per * compCats.length;
+    compCats.forEach((cat, i) => {
+      compsToInsert.push({
+        id: `comp_${g.showId}_${cat}`,
+        showId: g.showId,
+        category: cat,
+        count: per + (i === 0 ? remainder : 0),
+        faceValue: g.ticketFace,
+        countsTowardGross: false,
+        notes: null,
+      });
+    });
+
+    g.expenses.forEach((e, idx) => {
+      expensesToInsert.push({
+        id: `exp_${g.showId}_${idx}`,
+        showId: g.showId,
+        category: e.category,
+        amount: e.amount,
+        description: e.description,
+        approved: true,
+        absorbedByVenue: false,
+        enteredByUserId: MARIANA_ID,
+        enteredAt: new Date(showEnd.getTime() - 30 * 60 * 1000),
+        source: "manual" as const,
+        receiptPath: e.receipt,
+      });
+    });
+
+    const grossExpenses = g.expenses.reduce((s, e) => s + e.amount, 0);
+    const net = grossGross - g.ticketFees - Math.min(grossExpenses, g.expenseCap ?? Infinity);
+
+    settlementsToInsert.push({
+      id: settlementId,
+      showId: g.showId,
+      status: "paid" as const,
+      draftedAt: showEnd,
+      submittedAt: new Date(showEnd.getTime() + 5 * 60 * 1000),
+      reviewStartedAt: new Date(showEnd.getTime() + 10 * 60 * 1000),
+      signedAt: new Date(settledAt.getTime() - 8 * 60 * 1000),
+      disputedAt: null,
+      revisedAt: null,
+      finalizedAt: new Date(settledAt.getTime() - 5 * 60 * 1000),
+      paidAt: settledAt,
+      completedAt: settledAt,
+      completedByUserId: MARIANA_ID,
+      grossBoxOffice: grossGross,
+      netBoxOffice: net,
+      totalExpenses: Math.min(grossExpenses, g.expenseCap ?? Infinity),
+      totalToArtist: g.totalToArtist,
+      calculationJson: null,
+      recoupsJson: null,
+      signoffText: null,
+      notes: null,
+      expensesConfirmedAt: new Date(showEnd.getTime() + 15 * 60 * 1000),
+      gmApprovedAt: settledAt,
+      gmHeldAt: null,
+      gmHoldReason: null,
+    });
+  }
+
   // Bulk insert
   console.log(`   Inserting ${showsToInsert.length} shows…`);
   const chunkArr = <T>(arr: T[], size: number): T[][] =>
@@ -1643,6 +1960,7 @@ async function main() {
   console.log(`   1 future show (Pale Lake, April 2026) injected in deal-locked state`);
   console.log(`   1 fresh show (Hollow Oak, June 19 2026) injected with no deal — for live capture demo`);
   console.log(`   1 PM-mobile expense link seeded (pm-hollowoak-jun19) for the live walkthrough`);
+  console.log(`   ${galleryFixtures.length} view-only gallery fixtures injected for /shows/deal-types`);
   console.log(`   ${allActivity.length} activity events (${coastalSpellActivitySeed.length} Coastal Spell, ${paleLakeActivitySeed.length} Pale Lake)`);
   console.log(`   ${shareLinksToInsert.length} share links (deal + settlement magic-link tokens)`);
 }

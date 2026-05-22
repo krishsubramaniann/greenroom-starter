@@ -7,6 +7,7 @@ import {
 } from "@/lib/format";
 import { ShowsList } from "./shows-list";
 import type { ShowRow } from "./shows-list";
+import { ShowsTabs } from "./ShowsTabs";
 
 export default async function ShowsPage() {
   const rows = await getAllShows();
@@ -77,6 +78,8 @@ export default async function ShowsPage() {
           .
         </p>
       </div>
+
+      <ShowsTabs />
 
       <div className="grid grid-cols-3 gap-px bg-ink-200/40 rounded-xl overflow-hidden mb-14">
         <StatCard label="Shows" value={String(reversed.length)} />

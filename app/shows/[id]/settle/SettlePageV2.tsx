@@ -49,7 +49,10 @@ import {
 } from "@/components/ui/card";
 import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
 
-import { deriveLifecycleState } from "@/components/settlement/LifecycleBar";
+import {
+  LifecycleBar,
+  deriveLifecycleState,
+} from "@/components/settlement/LifecycleBar";
 import { LifecycleBarPoll } from "./LifecycleBarPoll";
 import { BranchSummary } from "@/components/settlement/BranchSummary";
 import { AmbiguityCard } from "@/components/settlement/AmbiguityCard";
@@ -191,6 +194,9 @@ export async function SettlePageV2({ data, searchParams }: Props) {
   void searchParams; // walkthrough query param is deprecated post-Phase-7.5
 
   const { show, artist, deal, ticketSales, expenses, comps } = data;
+  // Phase 9: frozen view-only gallery fixtures get a polished read-only
+  // render — no CTAs, no polling, lifecycle force-rendered as already-paid.
+  const viewOnly = show.isViewOnlyExample === true;
   let { settlement } = data;
 
   if (!deal) {
@@ -334,6 +340,9 @@ export async function SettlePageV2({ data, searchParams }: Props) {
           <StatusBadge status={show.status} />
           <DealTypeBadge type={deal.dealType} />
           <PlainBadge variant="brand">V2 engine</PlainBadge>
+          {viewOnly && (
+            <PlainBadge variant="amber">View-only example</PlainBadge>
+          )}
           {deal.externalId && (
             <span className="text-[10.5px] text-ink-400 font-mono ml-1">
               {deal.externalId}
@@ -352,7 +361,25 @@ export async function SettlePageV2({ data, searchParams }: Props) {
       {/* Lifecycle */}
       <Card className="mb-6">
         <CardContent className="px-5 py-4">
-          <LifecycleBarPoll showId={show.id} initial={lifecycleInput} />
+          {viewOnly ? (
+            <LifecycleBar
+              state={deriveLifecycleState({
+                hasDeal: true,
+                dealConfirmedAt: deal.confirmedAt ?? null,
+                dealShareAccessedAt:
+                  dealShareLink?.accessedAt ?? deal.confirmedAt ?? null,
+                expensesConfirmedAt:
+                  settlement?.expensesConfirmedAt ?? null,
+                settlementStatus: settlement?.status ?? null,
+                paidAt: settlement?.paidAt ?? null,
+                gmApprovedAt: settlement?.gmApprovedAt ?? null,
+                gmHeldAt: null,
+                gmHoldReason: null,
+              })}
+            />
+          ) : (
+            <LifecycleBarPoll showId={show.id} initial={lifecycleInput} />
+          )}
         </CardContent>
       </Card>
 
@@ -371,7 +398,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                   </div>
                   <div className="text-[12px] text-ink-500 mt-1">
                     {artist?.name ?? "Artist"} ·{" "}
-                    {DEAL_TYPE_LABELS[deal.dealType]}
+                    {(deal.dealTypeLabelOverride ?? DEAL_TYPE_LABELS[deal.dealType])}
                   </div>
                 </div>
                 <div className="flex-1 min-w-[320px] max-w-md">
@@ -387,31 +414,33 @@ export async function SettlePageV2({ data, searchParams }: Props) {
           {/* Grid: main col + sidebar */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8 space-y-6">
-              <SettleCtaBar
-                showId={show.id}
-                pmExpenseUrl={pmExpenseUrl}
-                agentShareUrl={shareUrl}
-                gmApprovalUrl={gmApprovalUrl}
-                initialPmExpensesFinalizedAt={
-                  show.pmExpensesFinalizedAt?.toISOString() ?? null
-                }
-                initialExpensesConfirmedAt={
-                  settlement?.expensesConfirmedAt?.toISOString() ?? null
-                }
-                initialAgentSignoffStatus={signoff?.status ?? null}
-                initialAgentSignoffByName={signoff?.byName ?? null}
-                initialAgentSignoffAt={
-                  signoff?.at ? signoff.at.toISOString() : null
-                }
-                initialAgentSignoffText={signoff?.text ?? null}
-                initialGmApprovedAt={
-                  settlement?.gmApprovedAt?.toISOString() ?? null
-                }
-                initialGmHeldAt={
-                  settlement?.gmHeldAt?.toISOString() ?? null
-                }
-                initialGmHoldReason={settlement?.gmHoldReason ?? null}
-              />
+              {!viewOnly && (
+                <SettleCtaBar
+                  showId={show.id}
+                  pmExpenseUrl={pmExpenseUrl}
+                  agentShareUrl={shareUrl}
+                  gmApprovalUrl={gmApprovalUrl}
+                  initialPmExpensesFinalizedAt={
+                    show.pmExpensesFinalizedAt?.toISOString() ?? null
+                  }
+                  initialExpensesConfirmedAt={
+                    settlement?.expensesConfirmedAt?.toISOString() ?? null
+                  }
+                  initialAgentSignoffStatus={signoff?.status ?? null}
+                  initialAgentSignoffByName={signoff?.byName ?? null}
+                  initialAgentSignoffAt={
+                    signoff?.at ? signoff.at.toISOString() : null
+                  }
+                  initialAgentSignoffText={signoff?.text ?? null}
+                  initialGmApprovedAt={
+                    settlement?.gmApprovedAt?.toISOString() ?? null
+                  }
+                  initialGmHeldAt={
+                    settlement?.gmHeldAt?.toISOString() ?? null
+                  }
+                  initialGmHoldReason={settlement?.gmHoldReason ?? null}
+                />
+              )}
 
               <SettlementDetails
                 deal={deal}
@@ -420,6 +449,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 initialExpenses={initialExpenses}
                 venueCapacity={650}
                 showId={show.id}
+                live={!viewOnly}
               />
             </div>
 
@@ -476,7 +506,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 <CardContent className="grid grid-cols-2 gap-3 pt-0">
                   <Field
                     label="Type"
-                    value={DEAL_TYPE_LABELS[deal.dealType]}
+                    value={(deal.dealTypeLabelOverride ?? DEAL_TYPE_LABELS[deal.dealType])}
                   />
                   {deal.guaranteeAmount != null && (
                     <Field
@@ -551,12 +581,35 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 </CardContent>
               </Card>
 
-              {/* Recent activity (collapsible) */}
-              <ActivityPollCard
-                showId={show.id}
-                initialEvents={recentActivity}
-                viewAllHref={`/shows/${show.id}`}
-              />
+              {/* Recent activity — static when view-only (no polling on
+                  frozen gallery fixtures), live-polling otherwise. */}
+              {viewOnly ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-[14px]">
+                      Recent activity{" "}
+                      <span className="text-ink-400 font-normal text-[11px]">
+                        · {recentActivity.length}
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0 px-0">
+                    <ActivityLog
+                      events={recentActivity}
+                      variant="compact"
+                      limit={10}
+                      viewAllHref={`/shows/${show.id}`}
+                      emptyMessage="No activity recorded."
+                    />
+                  </CardContent>
+                </Card>
+              ) : (
+                <ActivityPollCard
+                  showId={show.id}
+                  initialEvents={recentActivity}
+                  viewAllHref={`/shows/${show.id}`}
+                />
+              )}
             </div>
           </div>
         </>
