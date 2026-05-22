@@ -242,7 +242,9 @@ export function SettleCtaBar({
         </div>
       )}
 
-      {/* CTA row 1 — Send PM link (open inline panel) */}
+      {/* CTA row 1 — PM expense link. After Mariana confirms expenses the
+          button demotes to a secondary [View PM link] with a check icon
+          (the panel still opens — same URL, audit-friendly). */}
       <div className="px-5 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
         <div className="text-[12px] text-ink-600 flex items-center gap-2">
           <span
@@ -262,12 +264,28 @@ export function SettleCtaBar({
           </span>
         </div>
         <Button
-          variant={pmPanelOpen ? "secondary" : pmFinalizedAt ? "secondary" : "brand"}
+          variant={
+            expensesConfirmedAt != null
+              ? "secondary"
+              : pmPanelOpen
+                ? "secondary"
+                : "brand"
+          }
           onClick={() => setPmPanelOpen((v) => !v)}
           className="gap-1.5"
         >
-          <Smartphone className="size-3.5" />
-          {pmPanelOpen ? "Hide PM link" : "Send PM link"}
+          {expensesConfirmedAt != null ? (
+            <Check className="size-3.5 text-brand-700" />
+          ) : (
+            <Smartphone className="size-3.5" />
+          )}
+          {pmPanelOpen
+            ? expensesConfirmedAt != null
+              ? "Hide PM link"
+              : "Hide PM link"
+            : expensesConfirmedAt != null
+              ? "View PM link"
+              : "Send PM link"}
         </Button>
       </div>
       {pmPanelOpen && (
@@ -276,8 +294,20 @@ export function SettleCtaBar({
           copied={pmCopied}
           onCopy={() => copyTo(pmExpenseUrl, setPmCopied)}
           onClose={() => setPmPanelOpen(false)}
-          eyebrow="PM expense link"
-          helpText="Text this to the production manager. Receipts show up in Section B above as they're logged."
+          eyebrow={
+            expensesConfirmedAt != null
+              ? `PM expense link · confirmed${
+                  pmFinalizedAt
+                    ? ` · PM finalized ${formatTime(pmFinalizedAt)}`
+                    : ""
+                }`
+              : "PM expense link"
+          }
+          helpText={
+            expensesConfirmedAt != null
+              ? "You've already confirmed PM expenses. The URL is here for audit / re-share if needed."
+              : "Text this to the production manager. Receipts show up in Section B above as they're logged."
+          }
         />
       )}
 
@@ -337,13 +367,29 @@ export function SettleCtaBar({
           </span>
         </div>
         <Button
-          variant={canSendAgent && !agentPanelOpen ? "brand" : "secondary"}
+          variant={
+            agentAcknowledged
+              ? "secondary"
+              : canSendAgent && !agentPanelOpen
+                ? "brand"
+                : "secondary"
+          }
           disabled={!canSendAgent || agentShareUrl == null}
           onClick={() => setAgentPanelOpen((v) => !v)}
           className="gap-1.5"
         >
-          <Mail className="size-3.5" />
-          {agentPanelOpen ? "Hide agent link" : "Send to agent for review"}
+          {agentAcknowledged ? (
+            <Check className="size-3.5 text-brand-700" />
+          ) : (
+            <Mail className="size-3.5" />
+          )}
+          {agentPanelOpen
+            ? agentAcknowledged
+              ? "Hide settlement"
+              : "Hide agent link"
+            : agentAcknowledged
+              ? "View Settlement"
+              : "Send to agent for review"}
         </Button>
       </div>
       {agentPanelOpen && agentShareUrl && (
@@ -352,8 +398,24 @@ export function SettleCtaBar({
           copied={agentCopied}
           onCopy={() => copyTo(agentShareUrl, setAgentCopied)}
           onClose={() => setAgentPanelOpen(false)}
-          eyebrow="Agent settlement preview"
-          helpText="Email or text this to the agent. They'll see a read-only one-pager and can acknowledge or dispute."
+          eyebrow={
+            agentAcknowledged
+              ? `Agent settlement preview · acknowledged${
+                  agentSignoffByName ? ` · ${agentSignoffByName}` : ""
+                }${agentSignoffAt ? ` · ${formatTime(agentSignoffAt)}` : ""}`
+              : agentSignoffStatus === "questions"
+                ? `Agent settlement preview · disputed${
+                    agentSignoffByName ? ` · ${agentSignoffByName}` : ""
+                  }`
+                : "Agent settlement preview"
+          }
+          helpText={
+            agentAcknowledged
+              ? "Already signed off — open the URL or copy it for the record. The agent's view is read-only on their end."
+              : agentSignoffStatus === "questions"
+                ? "Resolve the dispute on your side, then re-share the same URL — the agent picks up where they left off."
+                : "Email or text this to the agent. They'll see a read-only one-pager and can acknowledge or dispute."
+          }
           tone="agent"
         />
       )}
