@@ -82,6 +82,18 @@ export const shows = sqliteTable("shows", {
     .default("standing"),
   internalNotes: text("internal_notes"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  /**
+   * Wall-clock marker that the show has ended and box-office + comp data
+   * has been finalized. Until this is set, the settlement page is gated
+   * (we don't want Mariana running the engine against partial ticket sales).
+   */
+  endOfShowAt: integer("end_of_show_at", { mode: "timestamp" }),
+  /**
+   * The production manager pressed [Expense Finalized · Ready for Review]
+   * on /m/expense, signalling he's done logging receipts. Surfaces the
+   * "PM submitted, ready for your review" banner on the settle page.
+   */
+  pmExpensesFinalizedAt: integer("pm_expenses_finalized_at", { mode: "timestamp" }),
 });
 
 // -------- Deals --------
@@ -287,6 +299,12 @@ export const settlements = sqliteTable("settlements", {
 
   completedAt: integer("completed_at", { mode: "timestamp" }),
   completedByUserId: text("completed_by_user_id").references(() => users.id),
+  /**
+   * Mariana cross-checked the PM's expense list and clicked [Confirm expenses
+   * received]. Required before she can send the settlement to the agent —
+   * functions as her "I've reviewed what came in" affirmation.
+   */
+  expensesConfirmedAt: integer("expenses_confirmed_at", { mode: "timestamp" }),
 
   grossBoxOffice: real("gross_box_office"),
   netBoxOffice: real("net_box_office"),
@@ -395,6 +413,9 @@ export const activityEvents = sqliteTable("activity_events", {
       "expense_logged",
       "comp_logged",
       "ticket_milestone",
+      "show_complete",
+      "pm_expenses_finalized",
+      "expenses_confirmed",
       "settlement_drafted",
       "walkthrough_started",
       "trace_line_acked",
@@ -402,6 +423,8 @@ export const activityEvents = sqliteTable("activity_events", {
       "settlement_sent",
       "agent_signed_off",
       "agent_questioned",
+      "agent_acknowledged",
+      "agent_disputed",
       "gm_approved",
       "wire_sent",
       "settlement_paid",

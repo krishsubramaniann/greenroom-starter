@@ -1,10 +1,9 @@
 import { notFound } from "next/navigation";
-import { eq, asc, like, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "@/db";
 import {
   shareLinks,
-  clauseComments,
   activityEvents,
   ticketSales as ticketSalesTable,
   expenses as expensesTable,
@@ -16,6 +15,7 @@ import {
 } from "@/lib/shareLinks";
 import { calculateSettlementV2 } from "@/lib/dealMathV2";
 import { AgentArtifact } from "./AgentArtifact";
+import type { DetailsExpense } from "@/app/shows/[id]/settle/SettlementDetails";
 
 export default async function SettlementSharePage({
   params,
@@ -43,25 +43,19 @@ export default async function SettlementSharePage({
     venueCapacity: 650,
   });
 
-  // Trace-line questions (clauseRef = "trace.<step_key>") + general deal comments.
-  const traceCommentsRaw = await db
-    .select()
-    .from(clauseComments)
-    .where(
-      and(
-        eq(clauseComments.dealId, deal.id),
-        like(clauseComments.clauseRef, "trace.%"),
-      ),
-    );
+  const initialExpenses: DetailsExpense[] = expenses.map((e) => ({
+    id: e.id,
+    category: e.category,
+    amount: e.amount,
+    description: e.description,
+    approved: e.approved,
+    absorbedByVenue: e.absorbedByVenue,
+    source: (e.source ?? "manual") as "manual" | "pm_mobile",
+    enteredAt: e.enteredAt.toISOString(),
+    enteredByUserId: e.enteredByUserId,
+  }));
 
-  // Activity log — every event for this show, ordered chronologically.
-  const activity = await db
-    .select()
-    .from(activityEvents)
-    .where(eq(activityEvents.showId, ctx.show.id))
-    .orderBy(asc(activityEvents.occurredAt));
-
-  // First-touch
+  // First-touch: stamp accessedAt + write agent_opened
   if (!ctx.link.accessedAt) {
     const now = new Date();
     await db
@@ -93,16 +87,9 @@ export default async function SettlementSharePage({
       result={result}
       agentName={agentName}
       agencyName={ctx.agency?.name ?? null}
-      traceComments={traceCommentsRaw.map((c) => ({
-        id: c.id,
-        clauseRef: c.clauseRef,
-        actorName: c.actorName,
-        actorType: c.actorType as "user" | "agent" | "tour_manager",
-        body: c.body,
-        channel: c.channel,
-        createdAt: c.createdAt,
-      }))}
-      activity={activity}
+      ticketSales={ticketSales}
+      comps={compsList}
+      initialExpenses={initialExpenses}
       signoffStatus={ctx.link.signoffStatus}
       signoffText={ctx.link.signoffText}
       signoffByName={ctx.link.signoffByName}

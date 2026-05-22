@@ -23,11 +23,19 @@ const CATEGORY_OPTIONS: Array<{ value: Category; label: string }> = [
 
 type Props = {
   token: string;
+  showId: string;
   artistName: string;
   initialCount: number;
+  initialFinalizedAt: string | null;
 };
 
-export function ExpenseForm({ token, artistName, initialCount }: Props) {
+export function ExpenseForm({
+  token,
+  showId,
+  artistName,
+  initialCount,
+  initialFinalizedAt,
+}: Props) {
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<Category>("sound");
@@ -37,6 +45,15 @@ export function ExpenseForm({ token, artistName, initialCount }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(initialCount);
   const [showToast, setShowToast] = useState(false);
+  /** "form" = normal entry mode. "done" = finalized; collapse to a thank-
+   *  you screen with a "Need to add one more?" escape hatch. */
+  const [mode, setMode] = useState<"form" | "done">(
+    initialFinalizedAt ? "done" : "form",
+  );
+  const [finalizing, setFinalizing] = useState(false);
+  const [finalizedAt, setFinalizedAt] = useState<string | null>(
+    initialFinalizedAt,
+  );
 
   const canSubmit =
     vendor.trim().length > 0 && parseFloat(amount) > 0 && !submitting;
@@ -80,6 +97,64 @@ export function ExpenseForm({ token, artistName, initialCount }: Props) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleFinalize() {
+    if (count === 0 || finalizing) return;
+    setFinalizing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finalize-pm-expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, showId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Finalize failed");
+      }
+      const data = await res.json();
+      setFinalizedAt(data.finalizedAt);
+      setMode("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Finalize failed");
+    } finally {
+      setFinalizing(false);
+    }
+  }
+
+  // Done mode: thank-you screen with "Need to add one more?" escape hatch.
+  if (mode === "done") {
+    return (
+      <div className="space-y-5">
+        <div className="rounded-lg border border-brand-700/40 bg-brand-900/30 px-5 py-6 text-center">
+          <div className="inline-flex items-center justify-center size-12 rounded-full bg-brand-600 text-white">
+            <Check className="size-6" />
+          </div>
+          <div className="text-[17px] text-white font-medium mt-3">
+            Submitted to Mariana for review
+          </div>
+          <div className="text-[12px] text-ink-300 mt-1">
+            {count} receipt{count === 1 ? "" : "s"} logged · You&apos;re done — thanks!
+          </div>
+          {finalizedAt && (
+            <div className="text-[10.5px] text-ink-500 mt-2 font-mono">
+              {new Date(finalizedAt).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setMode("form")}
+          className="w-full text-[12.5px] text-ink-400 hover:text-white underline underline-offset-2"
+        >
+          Need to add one more? Re-open the form
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -208,8 +283,42 @@ export function ExpenseForm({ token, artistName, initialCount }: Props) {
       >
         <div className="flex items-center gap-2 rounded-lg bg-brand-900/40 border border-brand-700 text-brand-100 px-3 py-2 text-[13px]">
           <Check className="size-4 text-brand-300" />
-          Logged ✓ · {count} receipt{count === 1 ? "" : "s"} so far
+          Logged ✓ · {count} expense{count === 1 ? "" : "s"} so far
         </div>
+      </div>
+
+      {/* Session-end action — disabled until at least one expense submitted. */}
+      <div className="pt-3 border-t border-ink-800">
+        <div className="text-[10.5px] uppercase tracking-wider text-ink-400 font-medium mb-1.5">
+          Done logging?
+        </div>
+        <p className="text-[12px] text-ink-400 mb-2">
+          Tap when every receipt is in. Mariana will get a banner saying
+          you&apos;re ready for review.
+        </p>
+        <button
+          type="button"
+          onClick={handleFinalize}
+          disabled={count === 0 || finalizing}
+          className={cn(
+            "w-full h-12 rounded-lg text-[14px] font-medium flex items-center justify-center gap-2 transition-colors",
+            count > 0 && !finalizing
+              ? "bg-brand-700 hover:bg-brand-600 text-white"
+              : "bg-ink-800 text-ink-500",
+          )}
+        >
+          {finalizing ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Sending…
+            </>
+          ) : (
+            <>
+              <Check className="size-4" />
+              Expenses Finalized · Ready for Review
+            </>
+          )}
+        </button>
       </div>
     </form>
   );

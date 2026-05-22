@@ -65,8 +65,12 @@ export default async function PmExpensePage({
         <div className="mt-6">
           <ExpenseForm
             token={token}
+            showId={show.id}
             artistName={artist?.name ?? "Show"}
             initialCount={initialCount}
+            initialFinalizedAt={
+              show.pmExpensesFinalizedAt?.toISOString() ?? null
+            }
           />
         </div>
 

@@ -1,31 +1,45 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  ChevronUp,
-  HelpCircle,
-  X,
-} from "lucide-react";
+/**
+ * Agent settlement preview — Phase 7.5 clean one-pager.
+ *
+ * Read-only. Shows the same SettlementDetails Mariana sees (sections
+ * A/B/C, no polling because the figures are frozen at send-time) plus a
+ * deal-terms summary and a Total to Artist headline. Two bottom CTAs:
+ *
+ *   [Acknowledge & accept]   → /api/agent-acknowledge  (marks Finalized)
+ *   [Dispute / request changes] → /api/agent-dispute   (marks Disputed,
+ *                                                       captures reason)
+ *
+ * Once the agent has acted, the page shows a confirmation state instead
+ * of the action bar.
+ */
+
+import { useState } from "react";
+import { Check, HelpCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlainBadge } from "@/components/ui/badge";
 import { formatMoney, formatShowDateFull } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { TraceLine } from "@/components/settlement/TraceLine";
-import {
-  ClauseThread,
-  type ClauseThreadComment,
-} from "@/components/shared/ClauseThread";
-import { ActivityLog } from "@/components/activity/ActivityLog";
+import { SettlementDetails } from "@/app/shows/[id]/settle/SettlementDetails";
+import type { DetailsExpense } from "@/app/shows/[id]/settle/SettlementDetails";
 import type { SettlementResultV2 } from "@/lib/dealMathV2";
 import type {
   Deal,
   Show,
   Artist,
   Settlement,
-  ActivityEvent,
+  TicketSale,
+  Comp,
 } from "@/db/schema";
+
+const DEAL_TYPE_LABELS: Record<Deal["dealType"], string> = {
+  flat: "Flat guarantee",
+  vs: "Vs (guarantee vs %)",
+  percentage_of_net: "Percentage of net",
+  percentage_of_gross: "Percentage of gross",
+  door: "Door deal",
+};
 
 type Props = {
   token: string;
@@ -36,8 +50,9 @@ type Props = {
   result: SettlementResultV2;
   agentName: string;
   agencyName: string | null;
-  traceComments: Array<ClauseThreadComment & { clauseRef: string }>;
-  activity: ActivityEvent[];
+  ticketSales: TicketSale[];
+  comps: Comp[];
+  initialExpenses: DetailsExpense[];
   signoffStatus: "open" | "agreed" | "questions";
   signoffText: string | null;
   signoffByName: string | null;
@@ -53,29 +68,14 @@ export function AgentArtifact({
   result,
   agentName,
   agencyName,
-  traceComments,
-  activity,
+  ticketSales,
+  comps,
+  initialExpenses,
   signoffStatus,
-  signoffText,
   signoffByName,
   signoffAt,
+  signoffText,
 }: Props) {
-  const traceCommentsByKey = useMemo(() => {
-    const m = new Map<string, ClauseThreadComment[]>();
-    for (const c of traceComments) {
-      const key = c.clauseRef.replace(/^trace\./, "");
-      const arr = m.get(key) ?? [];
-      arr.push(c);
-      m.set(key, arr);
-    }
-    return m;
-  }, [traceComments]);
-
-  const [dealPanelOpen, setDealPanelOpen] = useState(false);
-  const [questionFor, setQuestionFor] = useState<string | null>(null);
-  const [questionDraft, setQuestionDraft] = useState("");
-  const [signoffMode, setSignoffMode] = useState<"none" | "questions">("none");
-  const [signoffDraft, setSignoffDraft] = useState("");
   const [status, setStatus] = useState(signoffStatus);
   const [stamp, setStamp] = useState<{
     name: string | null;
@@ -84,6 +84,8 @@ export function AgentArtifact({
   }>({ name: signoffByName, at: signoffAt, text: signoffText });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [disputeOpen, setDisputeOpen] = useState(false);
+  const [disputeReason, setDisputeReason] = useState("");
 
   if (!result.supported) {
     return (
@@ -98,69 +100,64 @@ export function AgentArtifact({
     );
   }
 
-  async function postQuestion(stepKey: string, body: string) {
-    if (!body.trim()) return;
+  async function handleAcknowledge() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/clause-comment", {
+      const res = await fetch("/api/agent-acknowledge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          clauseRef: `trace.${stepKey}`,
-          body: body.trim(),
-        }),
+        body: JSON.stringify({ token }),
       });
-      if (!res.ok) throw new Error("failed");
-      setQuestionFor(null);
-      setQuestionDraft("");
-      // Force a server re-fetch on the next visit by Mariana — for the
-      // agent page itself we don't need a refresh; just clear UI state.
-      // The ClauseThread will re-render on the next page load with the
-      // persisted comment.
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Acknowledge failed");
+      }
+      const data = await res.json();
+      setStatus("agreed");
+      setStamp({
+        name: agentName,
+        at: new Date(data.acknowledgedAt),
+        text: null,
+      });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Posting failed");
+      setError(e instanceof Error ? e.message : "Acknowledge failed");
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitSignoff(
-    submitStatus: "agreed" | "questions",
-    text?: string,
-  ) {
+  async function handleDispute() {
+    if (!disputeReason.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/agent-signoff", {
+      const res = await fetch("/api/agent-dispute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          signoffStatus: submitStatus,
-          signoffText: text,
-        }),
+        body: JSON.stringify({ token, disputeReason: disputeReason.trim() }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "signoff failed");
+        throw new Error(data.error ?? "Dispute failed");
       }
       const data = await res.json();
-      setStatus(submitStatus);
+      setStatus("questions");
       setStamp({
-        name: data.link.signoffByName,
-        at: new Date(data.link.signoffAt),
-        text: data.link.signoffText,
+        name: agentName,
+        at: new Date(data.disputedAt),
+        text: disputeReason.trim(),
       });
-      setSignoffMode("none");
-      setSignoffDraft("");
+      setDisputeOpen(false);
+      setDisputeReason("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Signoff failed");
+      setError(e instanceof Error ? e.message : "Dispute failed");
     } finally {
       setBusy(false);
     }
   }
+
+  const agentResponded = status === "agreed" || status === "questions";
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -168,7 +165,7 @@ export function AgentArtifact({
       <header className="bg-white border-b border-ink-200">
         <div className="max-w-3xl mx-auto px-5 sm:px-6 py-5 sm:py-6">
           <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium">
-            The Crescent · settlement preview
+            The Crescent · settlement preview for review
           </div>
           <div className="mt-1 flex items-baseline gap-2 flex-wrap">
             <h1 className="text-[22px] sm:text-[26px] font-display text-ink-900 leading-tight">
@@ -182,254 +179,152 @@ export function AgentArtifact({
             {formatMoney(result.totalToArtist)}
           </div>
           <div className="text-[12px] text-ink-500 mt-1">
-            Total to artist · settlement preview for {agentName}
+            Total to artist · for {agentName}
             {agencyName ? ` (${agencyName})` : ""}
           </div>
         </div>
       </header>
 
       <div className="max-w-3xl mx-auto px-5 sm:px-6 py-6 space-y-5 pb-40">
-        {/* Deal terms panel — collapsible */}
-        <section className="rounded-lg border border-ink-200 bg-white overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setDealPanelOpen((v) => !v)}
-            className="w-full px-4 py-3 flex items-center justify-between text-left"
-          >
-            <div>
-              <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium">
-                Deal terms
-              </div>
-              <div className="text-[13px] text-ink-900 mt-0.5">
-                {deal.dealType === "vs" ? "Vs" : deal.dealType} ·{" "}
-                {deal.guaranteeAmount != null
-                  ? formatMoney(deal.guaranteeAmount)
-                  : "—"}{" "}
-                /{" "}
-                {deal.percentage != null
-                  ? `${(deal.percentage * 100).toFixed(0)}% of ${deal.percentageBasis ?? "—"}`
-                  : "—"}{" "}
-                · cap {formatMoney(deal.expenseCap)}
-              </div>
-            </div>
-            {dealPanelOpen ? (
-              <ChevronUp className="size-4 text-ink-500" />
-            ) : (
-              <ChevronDown className="size-4 text-ink-500" />
-            )}
-          </button>
-          {dealPanelOpen && (
-            <div className="px-4 pb-4 border-t border-ink-100 grid grid-cols-2 gap-3 pt-3">
-              <FieldMini label="Deal type" value={deal.dealType} />
-              <FieldMini label="Guarantee" value={formatMoney(deal.guaranteeAmount)} />
-              <FieldMini
-                label="Percentage"
-                value={
-                  deal.percentage
-                    ? `${(deal.percentage * 100).toFixed(0)}%`
-                    : "—"
-                }
-              />
-              <FieldMini label="Expense cap" value={formatMoney(deal.expenseCap)} />
-              <FieldMini
-                label="Hospitality cap"
-                value={formatMoney(deal.hospitalityCap)}
-              />
-              {deal.externalId && (
-                <FieldMini label="Deal ID" value={deal.externalId} mono />
-              )}
-            </div>
-          )}
-        </section>
-
-        {/* Trace */}
+        {/* Deal terms summary — 4 fields, read-only */}
         <section className="rounded-lg border border-ink-200 bg-white overflow-hidden">
           <header className="px-4 py-3 border-b border-ink-100">
-            <h2 className="text-[13px] font-medium text-ink-900">
-              Settlement trace
-            </h2>
-            <div className="text-[11px] text-ink-500 mt-0.5">
-              Every line sources back to a receipt, ticketing row, deal term,
-              or comp rule. Tap any source pill for detail.
+            <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium">
+              Deal terms
             </div>
           </header>
-          <div>
-            {result.trace.map((step) => {
-              const stepComments = traceCommentsByKey.get(step.key) ?? [];
-              const isQuestioning = questionFor === step.key;
-              return (
-                <div key={step.key} className="border-b border-ink-100 last:border-b-0">
-                  <TraceLine step={step} ackable={false} />
-                  {(stepComments.length > 0 || isQuestioning || status === "open") && (
-                    <div className="px-4 pb-3">
-                      {stepComments.length > 0 && (
-                        <ClauseThread
-                          clauseRef={`trace.${step.key}`}
-                          initialComments={stepComments}
-                          readOnly
-                        />
-                      )}
-                      {status === "open" && !isQuestioning && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQuestionFor(step.key);
-                            setQuestionDraft("");
-                          }}
-                          className="mt-1 text-[11px] text-ink-500 hover:text-ink-800 inline-flex items-center gap-1"
-                        >
-                          <HelpCircle className="size-3" /> Question this line
-                        </button>
-                      )}
-                      {isQuestioning && (
-                        <div className="mt-2 space-y-2">
-                          <textarea
-                            autoFocus
-                            value={questionDraft}
-                            onChange={(e) => setQuestionDraft(e.target.value)}
-                            rows={3}
-                            placeholder="What doesn't match your read?"
-                            className="w-full px-3 py-2 text-[13px] rounded border border-ink-200 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300"
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              onClick={() => {
-                                setQuestionFor(null);
-                                setQuestionDraft("");
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              variant="default"
-                              onClick={() => postQuestion(step.key, questionDraft)}
-                              disabled={busy || !questionDraft.trim()}
-                            >
-                              Post question
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="grid grid-cols-2 gap-3 p-4">
+            <Field
+              label="Type"
+              value={DEAL_TYPE_LABELS[deal.dealType] ?? deal.dealType}
+            />
+            <Field
+              label="Guarantee"
+              value={
+                deal.guaranteeAmount != null
+                  ? formatMoney(deal.guaranteeAmount)
+                  : "—"
+              }
+              mono
+            />
+            <Field
+              label={`% of ${deal.percentageBasis ?? "—"}`}
+              value={
+                deal.percentage != null
+                  ? `${(deal.percentage * 100).toFixed(0)}%`
+                  : "—"
+              }
+              mono
+            />
+            <Field
+              label="Expense cap"
+              value={
+                deal.expenseCap != null ? formatMoney(deal.expenseCap) : "—"
+              }
+              mono
+            />
           </div>
         </section>
 
-        {/* Activity log — full timeline, collapsed by default */}
-        <ActivityLog events={activity} variant="full" defaultExpanded={false} />
+        {/* Settlement Details — sections A/B/C, read-only */}
+        <SettlementDetails
+          deal={deal}
+          ticketSales={ticketSales}
+          comps={comps}
+          initialExpenses={initialExpenses}
+          venueCapacity={650}
+          showId={show.id}
+          live={false}
+        />
 
-
+        {/* Error banner */}
         {error && (
-          <div className="text-[12px] text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-800">
             {error}
           </div>
         )}
       </div>
 
-      {/* Sticky footer — signoff actions */}
+      {/* Sticky footer — sign-off actions */}
       <footer className="fixed bottom-0 inset-x-0 z-20 bg-white/95 backdrop-blur border-t border-ink-200">
         <div className="max-w-3xl mx-auto px-5 sm:px-6 py-3">
-          {status === "open" ? (
-            signoffMode === "none" ? (
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="text-[12px] text-ink-500 max-w-[55%]">
-                  Your review goes back to Mariana. The settlement isn&apos;t
-                  finalized until you agree.
+          {agentResponded ? (
+            <ResponseStamp
+              status={status}
+              stamp={stamp}
+              agentName={agentName}
+              agencyName={agencyName}
+            />
+          ) : disputeOpen ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-[12px] font-medium text-amber-900">
+                  What needs to change?
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setSignoffMode("questions")}
-                    className="gap-1.5"
-                  >
-                    <HelpCircle className="size-3.5" /> I have questions
-                  </Button>
-                  <Button
-                    variant="brand"
-                    size="lg"
-                    onClick={() => submitSignoff("agreed")}
-                    disabled={busy}
-                    className="gap-1.5"
-                  >
-                    <Check className="size-4" />
-                    {busy ? "Signing…" : "I agree"}
-                  </Button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDisputeOpen(false);
+                    setDisputeReason("");
+                  }}
+                  aria-label="Close"
+                  className="text-ink-500 hover:text-ink-800"
+                >
+                  <X className="size-4" />
+                </button>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-[12px] font-medium text-amber-900">
-                    What&apos;s the question?
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSignoffMode("none")}
-                    aria-label="Close"
-                    className="text-ink-500 hover:text-ink-800"
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-                <textarea
-                  autoFocus
-                  value={signoffDraft}
-                  onChange={(e) => setSignoffDraft(e.target.value)}
-                  rows={3}
-                  placeholder="Summarize what doesn't match your read."
-                  className="w-full px-3 py-2 text-[13px] rounded border border-ink-200 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300"
-                />
-                <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => setSignoffMode("none")}>
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="default"
-                    onClick={() => submitSignoff("questions", signoffDraft)}
-                    disabled={busy || !signoffDraft.trim()}
-                  >
-                    Send to Mariana
-                  </Button>
-                </div>
+              <textarea
+                autoFocus
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value)}
+                rows={3}
+                placeholder="Summarize what doesn't match your read."
+                className="w-full px-3 py-2 text-[13px] rounded border border-ink-200 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300"
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDisputeOpen(false);
+                    setDisputeReason("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={handleDispute}
+                  disabled={busy || !disputeReason.trim()}
+                >
+                  Send to Mariana
+                </Button>
               </div>
-            )
+            </div>
           ) : (
-            <div className="flex items-center justify-between gap-3 flex-wrap text-[12px]">
-              <div
-                className={cn(
-                  "inline-flex items-center gap-2",
-                  status === "agreed" ? "text-brand-800" : "text-amber-800",
-                )}
-              >
-                <Check className="size-3.5" />
-                <span>
-                  {status === "agreed" ? "Signed off" : "Questions raised"} by{" "}
-                  <strong>{stamp.name ?? agentName}</strong>
-                  {stamp.at && (
-                    <>
-                      {" "}
-                      · {new Date(stamp.at).toLocaleString([], {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </>
-                  )}
-                </span>
-                {stamp.text && (
-                  <span className="text-ink-600 italic">
-                    · &ldquo;{stamp.text}&rdquo;
-                  </span>
-                )}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-[12px] text-ink-500 max-w-[55%]">
+                Your review goes back to Mariana. The settlement isn&apos;t
+                finalized until you accept.
               </div>
-              <PlainBadge variant={status === "agreed" ? "brand" : "amber"}>
-                {agencyName ?? "Agent"}
-              </PlainBadge>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setDisputeOpen(true)}
+                  className="gap-1.5"
+                >
+                  <HelpCircle className="size-3.5" /> Dispute / request changes
+                </Button>
+                <Button
+                  variant="brand"
+                  size="lg"
+                  onClick={handleAcknowledge}
+                  disabled={busy}
+                  className="gap-1.5"
+                >
+                  <Check className="size-4" />
+                  {busy ? "Acknowledging…" : "Acknowledge & accept"}
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -438,7 +333,7 @@ export function AgentArtifact({
   );
 }
 
-function FieldMini({
+function Field({
   label,
   value,
   mono,
@@ -454,12 +349,66 @@ function FieldMini({
       </div>
       <div
         className={cn(
-          "text-[12.5px] text-ink-900 mt-0.5",
+          "text-[13px] text-ink-900 mt-0.5",
           mono && "font-mono tabular",
         )}
       >
         {value}
       </div>
+    </div>
+  );
+}
+
+function ResponseStamp({
+  status,
+  stamp,
+  agentName,
+  agencyName,
+}: {
+  status: "agreed" | "questions" | "open";
+  stamp: { name: string | null; at: Date | null; text: string | null };
+  agentName: string;
+  agencyName: string | null;
+}) {
+  const isAgreed = status === "agreed";
+  return (
+    <div className="flex items-center justify-between gap-3 flex-wrap text-[12px]">
+      <div
+        className={cn(
+          "inline-flex items-start gap-2",
+          isAgreed ? "text-brand-800" : "text-amber-800",
+        )}
+      >
+        {isAgreed ? (
+          <Check className="size-4 mt-0.5" />
+        ) : (
+          <HelpCircle className="size-4 mt-0.5" />
+        )}
+        <div>
+          <div>
+            {isAgreed ? "Acknowledged & accepted" : "Dispute submitted"} by{" "}
+            <strong>{stamp.name ?? agentName}</strong>
+            {stamp.at && (
+              <>
+                {" "}
+                ·{" "}
+                {new Date(stamp.at).toLocaleString([], {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </>
+            )}
+          </div>
+          {stamp.text && (
+            <div className="text-ink-600 italic mt-1">“{stamp.text}”</div>
+          )}
+        </div>
+      </div>
+      <PlainBadge variant={isAgreed ? "brand" : "amber"}>
+        {agencyName ?? "Agent"}
+      </PlainBadge>
     </div>
   );
 }

@@ -1,115 +1,113 @@
 import { cn } from "@/lib/utils";
-import {
-  STAGE_LABELS,
-  stageHistory,
-} from "@/lib/settlementStage";
-import type { Settlement, SettlementStage } from "@/db/schema";
 
 /**
- * 7-stop settlement lifecycle bar for the V2 settle page.
+ * Phase 7.5 lifecycle bar — 7 stages reframed around the deal capture +
+ * expense confirmation + agent sign-off pipeline (no more walkthrough).
  *
- * Signed and Disputed are first-class siblings (the legacy page rolled
- * Disputed into a badge; V2 surfaces it as a stop so the trace artifact
- * can show "settled cleanly, no dispute" or "dispute fired here" with
- * equal weight). `voided` is rendered as a banner above the bar by the
- * caller, never inline.
+ *   1. Deal draft        — deal row exists (capture has been saved)
+ *   2. Deal submitted    — same row + share_link generated (auto on save)
+ *   3. Deal in review    — agent opened the deal share link
+ *   4. Deal signed       — deal.confirmedAt set (all ambiguities resolved)
+ *   5. Expenses          — settlement.expensesConfirmedAt set by Mariana
+ *   6. Finalized/Disputed— single slot, flips amber when disputed
+ *   7. Paid              — wire confirmed (settlement.paidAt)
+ *
+ * Caller computes the stage state from the resource graph and hands it
+ * to the bar as a `LifecycleState` so render logic stays declarative.
  */
-const STOPS: SettlementStage[] = [
-  "draft",
-  "submitted",
-  "in_review",
-  "signed",
-  "disputed",
-  "finalized",
-  "paid",
-];
 
-type Props = {
-  settlement: Settlement | null;
+export type StageState = "pending" | "active" | "complete" | "warning";
+
+export type LifecycleState = {
+  dealDraft: StageState;
+  dealSubmitted: StageState;
+  dealInReview: StageState;
+  dealSigned: StageState;
+  expensesConfirmed: StageState;
+  /** Either "Finalized" (complete) or "Disputed" (warning). Determines both
+   *  the label and the tone of the 6th stop. */
+  outcome: { label: "Finalized" | "Disputed"; state: StageState };
+  paid: StageState;
 };
 
-export function LifecycleBar({ settlement }: Props) {
-  const reached = new Set<SettlementStage>();
-  const stampedAt = new Map<SettlementStage, Date>();
-  if (settlement) {
-    for (const h of stageHistory(settlement)) {
-      reached.add(h.stage);
-      stampedAt.set(h.stage, h.at);
-    }
-    reached.add(settlement.status);
-  }
-  const current = settlement?.status ?? "draft";
+const STOPS = [
+  { key: "dealDraft", label: "Deal draft" },
+  { key: "dealSubmitted", label: "Deal submitted" },
+  { key: "dealInReview", label: "Deal in review" },
+  { key: "dealSigned", label: "Deal signed" },
+  { key: "expensesConfirmed", label: "Expenses" },
+  { key: "outcome", label: null }, // label comes from state.outcome
+  { key: "paid", label: "Paid" },
+] as const;
 
+function classesFor(state: StageState, isOutcomeWarning: boolean) {
+  if (state === "complete" && !isOutcomeWarning) {
+    return { dot: "bg-brand-700", text: "text-brand-800" };
+  }
+  if (state === "complete" && isOutcomeWarning) {
+    return { dot: "bg-rose-600", text: "text-rose-800" };
+  }
+  if (state === "warning") {
+    return { dot: "bg-rose-600 ring-2 ring-rose-200", text: "text-rose-900" };
+  }
+  if (state === "active") {
+    return { dot: "bg-brand-700 ring-2 ring-brand-200", text: "text-brand-900" };
+  }
+  return { dot: "bg-ink-200", text: "text-ink-400" };
+}
+
+type Props = { state: LifecycleState };
+
+export function LifecycleBar({ state }: Props) {
   return (
     <ol className="flex items-center gap-2 w-full overflow-x-auto py-2">
       {STOPS.map((stop, idx) => {
-        const isReached = reached.has(stop);
-        const isCurrent = stop === current;
-        const isDispute = stop === "disputed";
-        const skippedDispute =
-          stop === "disputed" && !reached.has("disputed") && reached.has("paid");
+        let ss: StageState;
+        let label: string;
+        let isOutcomeWarning = false;
+        if (stop.key === "outcome") {
+          ss = state.outcome.state;
+          label = state.outcome.label;
+          isOutcomeWarning =
+            state.outcome.label === "Disputed" && state.outcome.state !== "pending";
+        } else {
+          ss = state[stop.key];
+          label = stop.label as string;
+        }
+        const { dot, text } = classesFor(ss, isOutcomeWarning);
 
-        // Visual tones
-        let dotClass = "bg-ink-200";
-        let textClass = "text-ink-400";
-        if (isReached && !skippedDispute) {
-          dotClass = isDispute ? "bg-rose-600" : "bg-brand-700";
-          textClass = isDispute ? "text-rose-800" : "text-brand-800";
+        // The connector line lights up only when both adjacent stops are
+        // complete (signals continuous lineage).
+        const next = STOPS[idx + 1];
+        let nextSs: StageState = "pending";
+        if (next) {
+          if (next.key === "outcome") nextSs = state.outcome.state;
+          else nextSs = state[next.key];
         }
-        if (isCurrent) {
-          dotClass = isDispute
-            ? "bg-rose-600 ring-2 ring-rose-200"
-            : "bg-brand-700 ring-2 ring-brand-200";
-          textClass = isDispute ? "text-rose-900" : "text-brand-900";
-        }
-        if (skippedDispute) {
-          dotClass = "bg-ink-100 border border-dashed border-ink-300";
-          textClass = "text-ink-400";
-        }
-
-        const ts = stampedAt.get(stop);
+        const connectorComplete =
+          ss === "complete" && next != null && nextSs !== "pending";
 
         return (
-          <li
-            key={stop}
-            className="flex items-center gap-2 min-w-fit"
-          >
-            <div className="flex flex-col items-center min-w-[78px]">
+          <li key={stop.key} className="flex items-center gap-2 min-w-fit">
+            <div className="flex flex-col items-center min-w-[88px]">
               <span
-                className={cn(
-                  "size-3 rounded-full shrink-0",
-                  dotClass,
-                  isCurrent && "shadow-sm",
-                )}
-                aria-current={isCurrent ? "step" : undefined}
+                className={cn("size-3 rounded-full shrink-0 shadow-sm", dot)}
+                aria-current={ss === "active" ? "step" : undefined}
               />
               <span
                 className={cn(
                   "mt-1.5 text-[11px] font-medium whitespace-nowrap",
-                  textClass,
+                  text,
                 )}
               >
-                {STAGE_LABELS[stop]}
-                {skippedDispute && (
-                  <span className="ml-1 text-ink-400">(skipped)</span>
-                )}
+                {label}
               </span>
-              {ts && (
-                <span className="text-[10px] text-ink-400 mt-0.5 whitespace-nowrap">
-                  {ts.toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
-              )}
             </div>
-            {idx < STOPS.length - 1 && (
+            {next && (
               <div
                 className={cn(
                   "h-px flex-1 min-w-[20px]",
-                  isReached && reached.has(STOPS[idx + 1])
-                    ? "bg-brand-300"
-                    : "bg-ink-200",
+                  connectorComplete ? "bg-brand-300" : "bg-ink-200",
                 )}
               />
             )}
@@ -118,4 +116,82 @@ export function LifecycleBar({ settlement }: Props) {
       })}
     </ol>
   );
+}
+
+/**
+ * Derive the LifecycleState from raw show + deal + settlement + share-link
+ * inputs. Co-located here so the bar's contract stays single-purpose.
+ */
+export function deriveLifecycleState(input: {
+  hasDeal: boolean;
+  dealConfirmedAt: Date | null;
+  dealShareAccessedAt: Date | null;
+  expensesConfirmedAt: Date | null;
+  settlementStatus:
+    | "draft"
+    | "submitted"
+    | "in_review"
+    | "signed"
+    | "disputed"
+    | "revised"
+    | "finalized"
+    | "paid"
+    | "voided"
+    | null;
+  paidAt: Date | null;
+}): LifecycleState {
+  const {
+    hasDeal,
+    dealConfirmedAt,
+    dealShareAccessedAt,
+    expensesConfirmedAt,
+    settlementStatus,
+    paidAt,
+  } = input;
+
+  const dealDraft: StageState = hasDeal ? "complete" : "pending";
+  const dealSubmitted: StageState = hasDeal ? "complete" : "pending";
+  const dealInReview: StageState = dealShareAccessedAt
+    ? "complete"
+    : hasDeal
+      ? "active"
+      : "pending";
+  const dealSigned: StageState = dealConfirmedAt ? "complete" : "pending";
+  const expensesConfirmed: StageState = expensesConfirmedAt
+    ? "complete"
+    : dealConfirmedAt
+      ? "active"
+      : "pending";
+
+  // Outcome stage logic — flips based on settlement status.
+  let outcome: LifecycleState["outcome"];
+  if (settlementStatus === "disputed" || settlementStatus === "revised") {
+    outcome = { label: "Disputed", state: "warning" };
+  } else if (
+    settlementStatus === "finalized" ||
+    settlementStatus === "paid" ||
+    settlementStatus === "signed"
+  ) {
+    outcome = { label: "Finalized", state: "complete" };
+  } else if (expensesConfirmedAt) {
+    outcome = { label: "Finalized", state: "active" };
+  } else {
+    outcome = { label: "Finalized", state: "pending" };
+  }
+
+  const paid: StageState = paidAt
+    ? "complete"
+    : settlementStatus === "finalized"
+      ? "active"
+      : "pending";
+
+  return {
+    dealDraft,
+    dealSubmitted,
+    dealInReview,
+    dealSigned,
+    expensesConfirmed,
+    outcome,
+    paid,
+  };
 }

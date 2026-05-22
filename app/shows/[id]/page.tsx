@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import { eq, asc } from "drizzle-orm";
 import {
   ArrowLeft,
-  FileSpreadsheet,
   AlertCircle,
+  Check,
   Clock,
   TrendingUp,
 } from "lucide-react";
@@ -12,6 +12,7 @@ import { db } from "@/db";
 import { activityEvents } from "@/db/schema";
 import { getShowById } from "@/lib/queries";
 import { ActivityLog } from "@/components/activity/ActivityLog";
+import { ShowActionBar } from "./ShowActionBar";
 import {
   Card,
   CardContent,
@@ -23,6 +24,7 @@ import {
 import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { parseBonuses } from "@/lib/dealMath";
+import { parseDealRecoups } from "@/lib/dealMathV2";
 import {
   formatMoney,
   formatMoneyCompact,
@@ -85,6 +87,7 @@ export default async function ShowDetailPage({
     .reduce((s, c) => s + c.count, 0);
 
   const bonuses = deal ? parseBonuses(deal) : [];
+  const recoups = deal ? parseDealRecoups(deal) : [];
 
   const isDisputed = settlement?.status === "disputed";
 
@@ -130,12 +133,11 @@ export default async function ShowDetailPage({
               </span>
             </div>
           </div>
-          <Link href={`/shows/${show.id}/settle`} className="mt-6 shrink-0">
-            <Button variant="brand" size="lg">
-              <FileSpreadsheet className="h-4 w-4" />
-              {settlement ? "View settlement" : "Settle show"}
-            </Button>
-          </Link>
+          <ShowActionBar
+            showId={show.id}
+            hasDeal={!!deal}
+            endOfShowAt={show.endOfShowAt ?? null}
+          />
         </div>
 
         {/* Key numbers strip */}
@@ -150,7 +152,19 @@ export default async function ShowDetailPage({
       </div>
 
       <div className="px-12 pb-12">
-        {show.internalNotes && (
+        {show.endOfShowAt ? (
+          <div className="mb-8 mt-1 rounded-lg bg-brand-50/50 ring-1 ring-brand-200/60 p-5 flex gap-3">
+            <Check className="h-4 w-4 text-brand-700 mt-0.5 shrink-0" />
+            <div>
+              <div className="eyebrow text-[10px] text-brand-800 mb-1.5">
+                Status
+              </div>
+              <div className="text-[13px] text-ink-800 leading-relaxed">
+                Show complete · awaiting expense settlement
+              </div>
+            </div>
+          </div>
+        ) : show.internalNotes ? (
           <div className="mb-8 mt-1 rounded-lg bg-amber-50/50 ring-1 ring-amber-200/60 p-5 flex gap-3">
             <AlertCircle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
             <div>
@@ -162,7 +176,7 @@ export default async function ShowDetailPage({
               </div>
             </div>
           </div>
-        )}
+        ) : null}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-2">
           {/* Deal terms */}
@@ -218,6 +232,51 @@ export default async function ShowDetailPage({
                       }
                     />
                   </div>
+
+                  {recoups.length > 0 && (
+                    <div className="rounded-lg ring-1 ring-amber-200/60 bg-amber-50/30 p-4">
+                      <div className="eyebrow text-[10px] text-amber-800 mb-2">
+                        Recoups (deal-time deductions)
+                      </div>
+                      <ul className="space-y-1.5">
+                        {recoups.map((r) => (
+                          <li
+                            key={r.id}
+                            className="text-[12.5px] text-ink-800 flex items-center justify-between gap-2"
+                          >
+                            <span>
+                              <span className="capitalize">
+                                {r.category.replace(/_/g, " ")}
+                              </span>
+                              {r.label && (
+                                <span className="text-ink-500"> · {r.label}</span>
+                              )}
+                            </span>
+                            <span className="flex items-center gap-2 shrink-0">
+                              <span className="font-mono tabular">
+                                {formatMoney(r.amount)}
+                              </span>
+                              <PlainBadge
+                                variant={
+                                  r.position === "inside_cap"
+                                    ? "brand"
+                                    : r.position === "off_gross"
+                                      ? "amber"
+                                      : r.position === "ambiguous"
+                                        ? "amber"
+                                        : "default"
+                                }
+                              >
+                                {r.position === "ambiguous"
+                                  ? "position?"
+                                  : r.position.replace(/_/g, "-")}
+                              </PlainBadge>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {bonuses.length > 0 && (
                     <div className="rounded-lg ring-1 ring-brand-200/50 bg-brand-50/20 p-4">
@@ -447,8 +506,12 @@ export default async function ShowDetailPage({
             </CardHeader>
             <CardContent>
               {expenses.length === 0 ? (
-                <div className="text-[13px] text-ink-400">
-                  No expenses entered yet.
+                <div className="text-[13px] text-ink-500">
+                  No expenses yet.
+                  <span className="text-ink-400">
+                    {" "}
+                    Production manager logs expenses during the show.
+                  </span>
                 </div>
               ) : (
                 <table className="w-full text-[13px]">

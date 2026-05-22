@@ -1545,37 +1545,11 @@ async function main() {
     internalNotes: "Fresh booking — deal email from Sarah expected this week.",
     createdAt: hollowOakCreated,
   });
-  // Deliberately no deal, settlement, tickets, or comps for Hollow Oak —
-  // those get created during the live capture / settle flow. But seed two
-  // "earlier in the day" expenses so the walkthrough has history when
-  // Mariana opens it; live PM-mobile additions during the show append to
-  // these.
-  expensesToInsert.push(
-    {
-      id: "exp_hollow_oak_sound",
-      showId: hollowOakShowId,
-      category: "sound",
-      amount: 150,
-      description: "Sound tech — load-in",
-      approved: true,
-      absorbedByVenue: false,
-      enteredByUserId: MARIANA_ID,
-      enteredAt: new Date(`${hollowOakDate}T18:30:00-06:00`),
-      source: "manual",
-    },
-    {
-      id: "exp_hollow_oak_production",
-      showId: hollowOakShowId,
-      category: "production",
-      amount: 75,
-      description: "Production add — drum riser shim",
-      approved: true,
-      absorbedByVenue: false,
-      enteredByUserId: MARIANA_ID,
-      enteredAt: new Date(`${hollowOakDate}T19:15:00-06:00`),
-      source: "manual",
-    },
-  );
+  // Cold-start fixture: no deal, settlement, tickets, comps, or expenses.
+  // The whole Loom demo flow creates these live — deal capture → end of
+  // show → PM expense uploads → confirm → agent signoff. The PM share
+  // link (seeded below) and pmExpensesFinalizedAt staying null are the
+  // only signals that this show is set up for the demo.
 
   // Bulk insert
   console.log(`   Inserting ${showsToInsert.length} shows…`);
@@ -1668,7 +1642,6 @@ async function main() {
   console.log(`   1 named dispute (Coastal Spell, March 2025) injected — now resolved upstream via V2 deal capture`);
   console.log(`   1 future show (Pale Lake, April 2026) injected in deal-locked state`);
   console.log(`   1 fresh show (Hollow Oak, June 19 2026) injected with no deal — for live capture demo`);
-  console.log(`   2 historical expenses seeded for Hollow Oak (Sound tech + Production)`);
   console.log(`   1 PM-mobile expense link seeded (pm-hollowoak-jun19) for the live walkthrough`);
   console.log(`   ${allActivity.length} activity events (${coastalSpellActivitySeed.length} Coastal Spell, ${paleLakeActivitySeed.length} Pale Lake)`);
   console.log(`   ${shareLinksToInsert.length} share links (deal + settlement magic-link tokens)`);

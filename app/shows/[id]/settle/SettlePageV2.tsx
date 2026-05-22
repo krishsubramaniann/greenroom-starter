@@ -1,19 +1,27 @@
 /**
- * V2 settle page — built around lib/dealMathV2.ts TraceStep[].
+ * V2 settle page — Phase 7.5 redesign.
  *
- * Routed to when `deal.confirmedAt` is set. Renders the full lifecycle bar
- * (Signed + Disputed as first-class stops), big number with branch summary,
- * the trace as a vertical list of TraceLine components, an unresolved-
- * ambiguities sidebar, and a sticky action bar with [Walkthrough mode] and
- * [Send to agent for preview].
+ * Gated on `shows.endOfShowAt`: if the show hasn't been marked ended, we
+ * redirect to /shows/[id] so settlement math never runs against partial
+ * box-office data.
  *
- * If the V2 engine returns supported:false (e.g. a confirmed door deal),
- * an "unsupported deal type" panel renders in place of the trace.
+ * Layout:
+ *   - LifecycleBar (7 stages — deal capture → expenses → finalized → paid)
+ *   - Big number + branch summary (Total to artist)
+ *   - SettleCtaBar (sequential gated CTAs: Send PM link → Confirm expenses
+ *     → Send to agent for review)
+ *   - SettlementDetails (Section A/B/C, with live PM-mobile expense polling)
+ *   - Sidebar: deal terms, engine summary, optional unresolved ambiguities,
+ *     collapsible Recent Activity
+ *
+ * The Walkthrough overlay from Phase 4 is removed. Sign-off now happens on
+ * this page directly via the CTA bar.
  */
 
+import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, Check } from "lucide-react";
-import { eq, and, desc, like } from "drizzle-orm";
+import { ArrowLeft, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { and, asc, desc, eq, like } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { db } from "@/db";
@@ -23,7 +31,6 @@ import {
   clauseComments as clauseCommentsTable,
   activityEvents as activityEventsTable,
   settlements as settlementsTable,
-  type WalkthroughAck,
   type Deal,
 } from "@/db/schema";
 import type { ShowWithRelations } from "@/lib/queries";
@@ -42,15 +49,17 @@ import {
 } from "@/components/ui/card";
 import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
 
-import { LifecycleBar } from "@/components/settlement/LifecycleBar";
+import {
+  LifecycleBar,
+  deriveLifecycleState,
+} from "@/components/settlement/LifecycleBar";
 import { BranchSummary } from "@/components/settlement/BranchSummary";
-import { TraceLine } from "@/components/settlement/TraceLine";
 import { AmbiguityCard } from "@/components/settlement/AmbiguityCard";
 import { ActivityLog } from "@/components/activity/ActivityLog";
-import { LiveExpensesPanel } from "@/components/expenses/LiveExpensesPanel";
 
-import { SettleActionBar } from "./SettleActionBar";
-import { Walkthrough } from "./Walkthrough";
+import { SettleCtaBar } from "./SettleCtaBar";
+import { SettlementDetails, type DetailsExpense } from "./SettlementDetails";
+import { CollapsibleActivityCard } from "./CollapsibleActivityCard";
 
 const DEAL_TYPE_LABELS: Record<Deal["dealType"], string> = {
   flat: "Flat guarantee",
@@ -60,17 +69,7 @@ const DEAL_TYPE_LABELS: Record<Deal["dealType"], string> = {
   door: "Door deal",
 };
 
-/**
- * Resolve (or lazily create) a magic-link share URL for this settlement so
- * the action bar can hand it to the agent. For Phase 3 the destination page
- * (Phase 5) doesn't render yet, but the token is real.
- */
-/**
- * Lazy-create a draft settlement when a V2-confirmed deal has no settlement
- * row yet (e.g. the first time someone visits /shows/<fresh>/settle after
- * locking the deal in capture). Also writes a settlement_drafted activity
- * event so the timeline reflects the system action.
- */
+/** Lazy-create a draft settlement on first V2 visit. */
 async function ensureDraftSettlement(showId: string, deal: Deal) {
   const [existing] = await db
     .select()
@@ -132,11 +131,6 @@ async function ensureSettlementShareLink(
   return `/shared/settlement/${token}`;
 }
 
-/**
- * Lazy-create a pm_expense share_link for the show. Returned token is what
- * Mariana texts to the production manager so he can hit /m/expense?token=...
- * Stable per-show: if a link already exists, it's reused.
- */
 async function ensurePmExpenseShareLink(showId: string): Promise<string> {
   const existing = await db
     .select()
@@ -167,10 +161,12 @@ type Props = {
 };
 
 export async function SettlePageV2({ data, searchParams }: Props) {
+  void searchParams; // walkthrough query param is deprecated post-Phase-7.5
+
   const { show, artist, deal, ticketSales, expenses, comps } = data;
   let { settlement } = data;
+
   if (!deal) {
-    // No deal at all — shouldn't reach here (router guards), but render safely.
     return (
       <div className="px-12 py-10 max-w-4xl">
         <BackLink showId={show.id} />
@@ -179,50 +175,32 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     );
   }
 
-  // Lazy-create a draft settlement on first V2-page visit. The V2 path
-  // routes only when deal.confirmedAt is set, so a fresh confirmed deal
-  // (e.g. Hollow Oak post-capture) gets a real settlement row + share_link
-  // anchor on first load — no separate "Start settlement" action needed.
+  // Hard gate: settle page only opens after the show has ended.
+  if (!show.endOfShowAt) {
+    redirect(`/shows/${show.id}`);
+  }
+
   if (!settlement && deal.confirmedAt) {
     settlement = await ensureDraftSettlement(show.id, deal);
   }
 
-  const isWalkthroughActive = searchParams.walkthrough === "1";
-
-  // Run the V2 engine.
+  // Run the engine for the big-number header + sidebar summary.
   const result = calculateSettlementV2({
     deal,
     ticketSales,
     expenses,
     comps,
-    venueCapacity: 650, // BUILD_PLAN: hardcoded for demo
+    venueCapacity: 650,
   });
 
-  // Walkthrough acks (joined to a settlement, if any).
-  let acks: WalkthroughAck[] = [];
-  if (settlement) {
-    acks = await db
-      .select()
-      .from(walkthroughAcksTable)
-      .where(eq(walkthroughAcksTable.settlementId, settlement.id));
-  }
-  const ackByKey = new Map<string, WalkthroughAck>();
-  for (const a of acks) ackByKey.set(a.lineKey, a);
-
-  // Share link (lazy-create if missing).
   const shareUrl = settlement
     ? await ensureSettlementShareLink(settlement.id)
-    : "/shared/settlement/unavailable";
+    : null;
 
-  // PM-mobile expense link — auto-created on first settle-page visit so the
-  // walkthrough overlay has a token ready to text to the production manager.
   const pmExpenseToken = await ensurePmExpenseShareLink(show.id);
   const pmExpenseUrl = `/m/expense?token=${pmExpenseToken}`;
 
-  // Initial expense snapshot for the LiveExpensesPanel. The component will
-  // poll for new arrivals client-side; we just need to seed it with what's
-  // already in the DB.
-  const initialExpenses = expenses.map((e) => ({
+  const initialExpenses: DetailsExpense[] = expenses.map((e) => ({
     id: e.id,
     category: e.category,
     amount: e.amount,
@@ -234,8 +212,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     enteredByUserId: e.enteredByUserId,
   }));
 
-  // Agent signoff state — most recent share_link for this settlement carries
-  // the canonical signoff status (open / agreed / questions).
+  // Sidebar: signoff link state + trace-line comments (legacy from Phase 5).
   let signoff: {
     status: "open" | "agreed" | "questions";
     text: string | null;
@@ -264,50 +241,47 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     }
   }
 
-  // Trace-line questions — clause_comments with clauseRef like "trace.%".
-  // Render as a chat-count badge on the matching TraceLine.
-  const traceQuestions = await db
-    .select()
-    .from(clauseCommentsTable)
-    .where(
-      and(
-        eq(clauseCommentsTable.dealId, deal.id),
-        like(clauseCommentsTable.clauseRef, "trace.%"),
-      ),
-    );
-  const traceCommentCountByKey = new Map<string, number>();
-  for (const c of traceQuestions) {
-    const key = c.clauseRef.replace(/^trace\./, "");
-    traceCommentCountByKey.set(
-      key,
-      (traceCommentCountByKey.get(key) ?? 0) + 1,
-    );
-  }
-
-  // Display ambiguities pull straight from the deal — these are the source
-  // of truth for unresolved state, not the engine's filtered list.
+  // Unresolved ambiguities sidebar (when deal has any).
   const dealAmbiguities = parseDealAmbiguities(deal);
   const unresolved = dealAmbiguities.filter((a) => !a.resolution);
 
-  // Recent activity for the sidebar — last 5 events, reverse-chronological.
+  // Recent activity (last 20, descending) — feeds the collapsible card.
   const recentActivity = await db
     .select()
     .from(activityEventsTable)
     .where(eq(activityEventsTable.showId, show.id))
     .orderBy(desc(activityEventsTable.occurredAt))
-    .limit(5);
+    .limit(20);
+
+  // Deal share link accessedAt drives the "Deal in review" lifecycle stage.
+  const [dealShareLink] = await db
+    .select()
+    .from(shareLinksTable)
+    .where(
+      and(
+        eq(shareLinksTable.resourceType, "deal"),
+        eq(shareLinksTable.resourceId, deal.id),
+      ),
+    )
+    .orderBy(desc(shareLinksTable.createdAt))
+    .limit(1);
+
+  // walkthrough_acks are no longer surfaced on this page (the overlay is
+  // gone), but we keep the table for backward compatibility — `like` query
+  // pulled only if needed.
+
+  const lifecycleState = deriveLifecycleState({
+    hasDeal: true,
+    dealConfirmedAt: deal.confirmedAt ?? null,
+    dealShareAccessedAt: dealShareLink?.accessedAt ?? null,
+    expensesConfirmedAt: settlement?.expensesConfirmedAt ?? null,
+    settlementStatus: settlement?.status ?? null,
+    paidAt: settlement?.paidAt ?? null,
+  });
 
   return (
     <div className="px-12 py-10 pb-24 max-w-7xl mx-auto">
       <BackLink showId={show.id} />
-
-      {/* Voided banner (when applicable) */}
-      {settlement?.status === "voided" && (
-        <div className="mb-6 rounded-md border border-ink-300 bg-ink-50 px-3 py-2 text-[12px] text-ink-700 flex items-center gap-2">
-          <AlertTriangle className="size-3.5 text-ink-500" />
-          This settlement was voided — engine output shown for reference only.
-        </div>
-      )}
 
       {/* Header */}
       <div className="mb-6">
@@ -333,7 +307,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
       {/* Lifecycle */}
       <Card className="mb-6">
         <CardContent className="px-5 py-4">
-          <LifecycleBar settlement={settlement ?? null} />
+          <LifecycleBar state={lifecycleState} />
         </CardContent>
       </Card>
 
@@ -351,7 +325,8 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                     {formatMoney(result.totalToArtist)}
                   </div>
                   <div className="text-[12px] text-ink-500 mt-1">
-                    {artist?.name ?? "Artist"} · {DEAL_TYPE_LABELS[deal.dealType]}
+                    {artist?.name ?? "Artist"} ·{" "}
+                    {DEAL_TYPE_LABELS[deal.dealType]}
                   </div>
                 </div>
                 <div className="flex-1 min-w-[320px] max-w-md">
@@ -364,121 +339,40 @@ export async function SettlePageV2({ data, searchParams }: Props) {
             </CardContent>
           </Card>
 
-          {/* Grid: trace + sidebar */}
+          {/* Grid: main col + sidebar */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-8">
-              <Card>
-                <CardHeader>
-                  <div>
-                    <CardTitle>Settlement trace</CardTitle>
-                    <div className="text-[11px] text-ink-500 mt-0.5">
-                      {result.trace.length} lines · every step sources back to a
-                      receipt, ticketing row, deal term, or comp rule.
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {result.trace.map((step) => (
-                    <TraceLine
-                      key={step.key}
-                      step={step}
-                      ackable={false}
-                      ackedBy={ackByKey.get(step.key) ?? null}
-                      commentsCount={traceCommentCountByKey.get(step.key)}
-                    />
-                  ))}
-                </CardContent>
-              </Card>
+            <div className="lg:col-span-8 space-y-6">
+              <SettleCtaBar
+                showId={show.id}
+                pmExpenseUrl={pmExpenseUrl}
+                agentShareUrl={shareUrl}
+                initialPmExpensesFinalizedAt={
+                  show.pmExpensesFinalizedAt?.toISOString() ?? null
+                }
+                initialExpensesConfirmedAt={
+                  settlement?.expensesConfirmedAt?.toISOString() ?? null
+                }
+                initialAgentSignoffStatus={signoff?.status ?? null}
+                initialAgentSignoffByName={signoff?.byName ?? null}
+                initialAgentSignoffAt={
+                  signoff?.at ? signoff.at.toISOString() : null
+                }
+                initialAgentSignoffText={signoff?.text ?? null}
+              />
+
+              <SettlementDetails
+                deal={deal}
+                ticketSales={ticketSales}
+                comps={comps}
+                initialExpenses={initialExpenses}
+                venueCapacity={650}
+                showId={show.id}
+              />
             </div>
 
             <div className="lg:col-span-4 space-y-4">
-              {/* Agent signoff status */}
-              {signoff && (
-                <Card
-                  accent={
-                    signoff.status === "agreed"
-                      ? "brand"
-                      : signoff.status === "questions"
-                        ? "amber"
-                        : "sky"
-                  }
-                >
-                  <CardContent className="px-4 py-3">
-                    <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium">
-                      Agent review
-                    </div>
-                    {signoff.status === "agreed" ? (
-                      <div className="mt-1">
-                        <div className="flex items-center gap-1.5 text-[13px] text-brand-900 font-medium">
-                          <Check className="size-3.5 text-brand-700" />
-                          Signed off
-                          {signoff.byName && (
-                            <span className="font-normal text-ink-700">
-                              · {signoff.byName}
-                            </span>
-                          )}
-                        </div>
-                        {signoff.at && (
-                          <div className="text-[11px] text-ink-500 mt-0.5">
-                            {new Date(signoff.at).toLocaleString([], {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </div>
-                        )}
-                        {signoff.text && (
-                          <p className="text-[12px] text-ink-700 mt-2 italic">
-                            “{signoff.text}”
-                          </p>
-                        )}
-                      </div>
-                    ) : signoff.status === "questions" ? (
-                      <div className="mt-1">
-                        <div className="text-[13px] text-amber-900 font-medium">
-                          Questions raised
-                          {signoff.byName && (
-                            <span className="font-normal text-ink-700">
-                              {" "}
-                              · {signoff.byName}
-                            </span>
-                          )}
-                        </div>
-                        {signoff.at && (
-                          <div className="text-[11px] text-ink-500 mt-0.5">
-                            {new Date(signoff.at).toLocaleString([], {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </div>
-                        )}
-                        {signoff.text && (
-                          <p className="text-[12px] text-ink-700 mt-2 italic">
-                            “{signoff.text}”
-                          </p>
-                        )}
-                        {traceCommentCountByKey.size > 0 && (
-                          <p className="text-[11px] text-ink-500 mt-2">
-                            {traceCommentCountByKey.size} line
-                            {traceCommentCountByKey.size === 1 ? "" : "s"}{" "}
-                            questioned — see chat badges in the trace.
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-[12px] text-sky-800 mt-1">
-                        Awaiting agent review — share link generated, not yet
-                        opened.
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Unresolved ambiguities */}
+              {/* Unresolved ambiguities — surfaced only when something's
+                  still open (shouldn't happen at this stage, but defensive). */}
               {unresolved.length > 0 && (
                 <Card accent="amber">
                   <CardHeader>
@@ -487,7 +381,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                         Unresolved ambiguities
                       </CardTitle>
                       <div className="text-[11px] text-amber-700/80 mt-0.5">
-                        Resolve upstream — before signoff.
+                        Resolve upstream before continuing.
                       </div>
                     </div>
                   </CardHeader>
@@ -505,7 +399,10 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                   <CardTitle className="text-[14px]">Deal terms</CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-3 pt-0">
-                  <Field label="Type" value={DEAL_TYPE_LABELS[deal.dealType]} />
+                  <Field
+                    label="Type"
+                    value={DEAL_TYPE_LABELS[deal.dealType]}
+                  />
                   {deal.guaranteeAmount != null && (
                     <Field
                       label="Guarantee"
@@ -546,7 +443,9 @@ export async function SettlePageV2({ data, searchParams }: Props) {
               {/* Settlement summary */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-[14px]">Settlement summary</CardTitle>
+                  <CardTitle className="text-[14px]">
+                    Settlement summary
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-3 pt-0">
                   <Field
@@ -577,27 +476,8 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 </CardContent>
               </Card>
 
-              {/* Live expenses — compact, polled from PM mobile uploads */}
-              <LiveExpensesPanel
-                showId={show.id}
-                initialExpenses={initialExpenses}
-                expenseCap={deal.expenseCap ?? null}
-                variant="compact"
-              />
-
-              {/* Recent activity — compact, last 5 */}
-              <div>
-                <div className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium mb-2 px-1">
-                  Recent activity
-                </div>
-                <ActivityLog
-                  events={recentActivity}
-                  variant="compact"
-                  limit={5}
-                  viewAllHref={`/shows/${show.id}`}
-                  emptyMessage="No activity yet."
-                />
-              </div>
+              {/* Recent activity (collapsible) */}
+              <CollapsibleActivityCard events={recentActivity} viewAllHref={`/shows/${show.id}`} />
             </div>
           </div>
         </>
@@ -605,30 +485,6 @@ export async function SettlePageV2({ data, searchParams }: Props) {
         <UnsupportedDealPanel
           dealType={result.dealType}
           reason={result.reason}
-        />
-      )}
-
-      {/* Sticky action bar */}
-      <SettleActionBar
-        showId={show.id}
-        shareUrl={shareUrl}
-        isWalkthroughActive={isWalkthroughActive}
-      />
-
-      {/* Walkthrough overlay — full-screen takeover when ?walkthrough=1 */}
-      {isWalkthroughActive && result.supported && settlement && (
-        <Walkthrough
-          settlementId={settlement.id}
-          showId={show.id}
-          artistName={artist?.name ?? "Artist"}
-          tourManagerName={`${artist?.name ?? "Artist"} TM`}
-          trace={result.trace}
-          initialAcks={acks}
-          shareUrl={shareUrl}
-          pmExpenseUrl={pmExpenseUrl}
-          expenseCap={deal.expenseCap ?? null}
-          initialExpenses={initialExpenses}
-          exitHref={`/shows/${show.id}/settle`}
         />
       )}
     </div>
@@ -664,10 +520,6 @@ function UnsupportedDealPanel({
               yet
             </div>
             <p className="text-[12px] text-ink-600 mt-1 max-w-prose">{reason}</p>
-            <p className="text-[12px] text-ink-500 mt-2">
-              Power users default to a spreadsheet for these. We&apos;d add
-              coverage next.
-            </p>
           </div>
         </div>
       </CardContent>
