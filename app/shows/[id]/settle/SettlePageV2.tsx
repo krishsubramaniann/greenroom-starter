@@ -48,6 +48,8 @@ import {
   Field,
 } from "@/components/ui/card";
 import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
+import { deriveDisplayStatus } from "@/lib/settlementStage";
+import { LiveStatusBadge } from "./LiveStatusBadge";
 
 import {
   LifecycleBar,
@@ -218,12 +220,23 @@ export async function SettlePageV2({ data, searchParams }: Props) {
   }
 
   // Run the engine for the big-number header + sidebar summary.
+  // Phase 8.9.1 — forward the persisted adjustment so the canonical
+  // result.totalToArtist + result.netBoxOffice already reflect it.
+  const settlementAdjustment =
+    settlement?.adjustmentSavedAt &&
+    settlement.adjustmentAmount != null
+      ? {
+          amount: settlement.adjustmentAmount,
+          description: settlement.adjustmentDescription ?? undefined,
+        }
+      : null;
   const result = calculateSettlementV2({
     deal,
     ticketSales,
     expenses,
     comps,
     venueCapacity: 650,
+    adjustment: settlementAdjustment,
   });
 
   const shareUrl = settlement
@@ -351,6 +364,8 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     gmApprovedAt: settlement?.gmApprovedAt?.toISOString() ?? null,
     gmHeldAt: settlement?.gmHeldAt?.toISOString() ?? null,
     gmHoldReason: settlement?.gmHoldReason ?? null,
+    adjustmentSavedAt:
+      settlement?.adjustmentSavedAt?.toISOString() ?? null,
   };
   // Silence unused-import warning — derive helper is re-exported via
   // LifecycleBarPoll, kept available here for downstream callers.
@@ -363,7 +378,39 @@ export async function SettlePageV2({ data, searchParams }: Props) {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-1.5 mb-3">
-          <StatusBadge status={show.status} />
+          {viewOnly ? (
+            <StatusBadge
+              status={deriveDisplayStatus({
+                showStatus: show.status,
+                settlement: settlement
+                  ? {
+                      status: settlement.status,
+                      gmApprovedAt: settlement.gmApprovedAt,
+                      finalizedAt: settlement.finalizedAt,
+                      disputedAt: settlement.disputedAt,
+                      adjustmentSavedAt: settlement.adjustmentSavedAt,
+                    }
+                  : null,
+              })}
+            />
+          ) : (
+            <LiveStatusBadge
+              showId={show.id}
+              showStatus={show.status}
+              initial={deriveDisplayStatus({
+                showStatus: show.status,
+                settlement: settlement
+                  ? {
+                      status: settlement.status,
+                      gmApprovedAt: settlement.gmApprovedAt,
+                      finalizedAt: settlement.finalizedAt,
+                      disputedAt: settlement.disputedAt,
+                      adjustmentSavedAt: settlement.adjustmentSavedAt,
+                    }
+                  : null,
+              })}
+            />
+          )}
           <DealTypeBadge type={deal.dealType} />
           <PlainBadge variant="brand">V2 engine</PlainBadge>
           {viewOnly && (
@@ -401,6 +448,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 gmApprovedAt: settlement?.gmApprovedAt ?? null,
                 gmHeldAt: null,
                 gmHoldReason: null,
+                adjustmentSavedAt: settlement?.adjustmentSavedAt ?? null,
               })}
             />
           ) : (

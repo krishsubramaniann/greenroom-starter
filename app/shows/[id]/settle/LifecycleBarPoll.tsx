@@ -38,6 +38,9 @@ type Input = {
   gmApprovedAt: string | null;
   gmHeldAt: string | null;
   gmHoldReason: string | null;
+  /** Phase 8.9.1 — drives the stage 6 "In review" amber state when
+   *  Mariana saved an adjustment + waiting for agent re-ack. */
+  adjustmentSavedAt: string | null;
 };
 
 function asDate(s: string | null): Date | null {
@@ -55,6 +58,7 @@ function derive(input: Input): LifecycleState {
     gmApprovedAt: asDate(input.gmApprovedAt),
     gmHeldAt: asDate(input.gmHeldAt),
     gmHoldReason: input.gmHoldReason,
+    adjustmentSavedAt: asDate(input.adjustmentSavedAt),
   });
 }
 
@@ -88,6 +92,7 @@ export function LifecycleBarPoll({ showId, initial }: Props) {
           gmApprovedAt: data.gmApprovedAt ?? null,
           gmHeldAt: data.gmHeldAt ?? null,
           gmHoldReason: data.gmHoldReason ?? null,
+          adjustmentSavedAt: data.adjustmentSavedAt ?? null,
         }));
       } catch {
         // best-effort polling

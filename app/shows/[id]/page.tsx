@@ -22,6 +22,7 @@ import {
   Field,
 } from "@/components/ui/card";
 import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
+import { deriveDisplayStatus } from "@/lib/settlementStage";
 import { Button } from "@/components/ui/button";
 import { parseBonuses } from "@/lib/dealMath";
 import { parseDealRecoups } from "@/lib/dealMathV2";
@@ -105,9 +106,22 @@ export default async function ShowDetailPage({
         <div className="flex items-start justify-between gap-6">
           <div>
             <div className="flex items-center gap-1.5 mb-4">
-              <StatusBadge status={show.status} />
+              <StatusBadge
+                status={deriveDisplayStatus({
+                  showStatus: show.status,
+                  settlement: settlement
+                    ? {
+                        status: settlement.status,
+                        gmApprovedAt: settlement.gmApprovedAt,
+                        finalizedAt: settlement.finalizedAt,
+                        disputedAt: settlement.disputedAt,
+                        adjustmentSavedAt: settlement.adjustmentSavedAt,
+                      }
+                    : null,
+                })}
+              />
               {deal && <DealTypeBadge type={deal.dealType} />}
-              {isDisputed && (
+              {isDisputed && !settlement?.adjustmentSavedAt && (
                 <PlainBadge variant="rose">Disputed</PlainBadge>
               )}
               {bonuses.length > 0 && (

@@ -79,12 +79,22 @@ export default async function GmApprovePage({
     db.select().from(compsTable).where(eq(compsTable.showId, show.id)),
   ]);
 
+  // Phase 8.9.1 — feed the persisted adjustment to the engine so the
+  // GM mobile view shows the post-adjustment total + settlement math.
+  const settlementAdjustment =
+    settlement.adjustmentSavedAt && settlement.adjustmentAmount != null
+      ? {
+          amount: settlement.adjustmentAmount,
+          description: settlement.adjustmentDescription ?? undefined,
+        }
+      : null;
   const result: SettlementResultV2 = calculateSettlementV2({
     deal,
     ticketSales,
     expenses,
     comps: compsList,
     venueCapacity: 650,
+    adjustment: settlementAdjustment,
   });
 
   // Agent signoff context for the approval-context checklist.

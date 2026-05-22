@@ -1,6 +1,23 @@
 import { cn } from "@/lib/utils";
 
-type Status = "booked" | "advanced" | "day_of" | "settled" | "closed";
+/**
+ * Phase 8.9.1 — extended status palette. The DB `shows.status` enum is
+ * `booked | advanced | day_of | settled | closed`, but the live
+ * lifecycle on the settle page surfaces a finer "what's actually
+ * happening right now" pill: `disputed` and `in_review` (Mariana
+ * sent a revised settlement post-adjustment) and `finalized` (agent
+ * ack'd but GM hasn't approved). Callers can pass a derived status
+ * instead of the raw column value when they have settlement context.
+ */
+type Status =
+  | "booked"
+  | "advanced"
+  | "day_of"
+  | "settled"
+  | "closed"
+  | "disputed"
+  | "in_review"
+  | "finalized";
 
 const statusStyles: Record<
   Status,
@@ -36,6 +53,24 @@ const statusStyles: Record<
     ring: "ring-ink-200/80",
     dot: "bg-ink-400",
   },
+  disputed: {
+    bg: "bg-amber-50",
+    fg: "text-amber-800",
+    ring: "ring-amber-200/80",
+    dot: "bg-amber-700",
+  },
+  in_review: {
+    bg: "bg-amber-50",
+    fg: "text-amber-800",
+    ring: "ring-amber-200/80",
+    dot: "bg-amber-700",
+  },
+  finalized: {
+    bg: "bg-brand-50",
+    fg: "text-brand-800",
+    ring: "ring-brand-200/80",
+    dot: "bg-brand-700",
+  },
 };
 
 const statusLabels: Record<Status, string> = {
@@ -44,6 +79,9 @@ const statusLabels: Record<Status, string> = {
   day_of: "Day of",
   settled: "Settled",
   closed: "Closed",
+  disputed: "Disputed",
+  in_review: "In review",
+  finalized: "Finalized",
 };
 
 export function StatusBadge({

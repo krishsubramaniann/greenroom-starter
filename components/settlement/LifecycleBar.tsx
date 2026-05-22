@@ -24,9 +24,14 @@ export type LifecycleState = {
   dealInReview: StageState;
   dealSigned: StageState;
   expensesConfirmed: StageState;
-  /** Either "Finalized" (complete) or "Disputed" (warning). Determines both
-   *  the label and the tone of the 6th stop. */
-  outcome: { label: "Finalized" | "Disputed"; state: StageState };
+  /** "Finalized" (complete/active/pending), "Disputed" (warning), or
+   *  "In review" (warning — Phase 8.9.1, after Mariana saved an
+   *  adjustment but the agent hasn't re-acknowledged yet). Determines
+   *  both the label and the tone of the 6th stop. */
+  outcome: {
+    label: "Finalized" | "Disputed" | "In review";
+    state: StageState;
+  };
   /** Stage 7 flips between "Paid" (green) and "On hold" (amber). A GM
    *  hold ≠ a payment, so the dot can't stay green just because we're
    *  past the agent-ack milestone. Optional reason surfaces below the
@@ -162,6 +167,10 @@ export function deriveLifecycleState(input: {
   gmApprovedAt?: Date | null;
   gmHeldAt?: Date | null;
   gmHoldReason?: string | null;
+  /** Phase 8.9.1 — when Mariana saved a single-line adjustment after
+   *  the agent disputed, stage 6 reads as "In review" until the agent
+   *  re-acknowledges (status flips to "finalized" / "paid"). */
+  adjustmentSavedAt?: Date | null;
 }): LifecycleState {
   const {
     hasDeal,
@@ -173,6 +182,7 @@ export function deriveLifecycleState(input: {
     gmApprovedAt,
     gmHeldAt,
     gmHoldReason,
+    adjustmentSavedAt,
   } = input;
 
   const dealDraft: StageState = hasDeal ? "complete" : "pending";
@@ -190,9 +200,14 @@ export function deriveLifecycleState(input: {
       : "pending";
 
   // Outcome stage logic — flips based on settlement status.
+  // Phase 8.9.1 — when status is "disputed" but an adjustment is saved,
+  // we treat that as "in review" (Mariana sent the revised settlement,
+  // waiting on the agent's re-ack) rather than the raw dispute amber.
   let outcome: LifecycleState["outcome"];
   if (settlementStatus === "disputed" || settlementStatus === "revised") {
-    outcome = { label: "Disputed", state: "warning" };
+    outcome = adjustmentSavedAt
+      ? { label: "In review", state: "warning" }
+      : { label: "Disputed", state: "warning" };
   } else if (
     settlementStatus === "finalized" ||
     settlementStatus === "paid" ||

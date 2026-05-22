@@ -35,12 +35,23 @@ export default async function SettlementSharePage({
     db.select().from(compsTable).where(eq(compsTable.showId, ctx.show.id)),
   ]);
 
+  // Phase 8.9.1 — bake the persisted adjustment into the engine so
+  // every consumer (header total, Section C, sidebar summaries) reads
+  // a single canonical post-adjustment total.
+  const settlementAdjustment =
+    settlement.adjustmentSavedAt && settlement.adjustmentAmount != null
+      ? {
+          amount: settlement.adjustmentAmount,
+          description: settlement.adjustmentDescription ?? undefined,
+        }
+      : null;
   const result = calculateSettlementV2({
     deal,
     ticketSales,
     expenses,
     comps: compsList,
     venueCapacity: 650,
+    adjustment: settlementAdjustment,
   });
 
   const initialExpenses: DetailsExpense[] = expenses.map((e) => ({

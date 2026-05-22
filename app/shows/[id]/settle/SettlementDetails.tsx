@@ -197,6 +197,9 @@ export function SettlementDetails({
   // Recompute the engine locally on each render so Sections A and C stay
   // in sync with live Section B additions. The engine is import-safe
   // client-side (lib/dealMathV2 uses only type-only schema imports).
+  // Phase 8.9.1 — forward the persisted adjustment so the engine's
+  // canonical totalToArtist / netBoxOffice already reflect it; the UI
+  // below reads those values directly instead of recomputing locally.
   const result: SettlementResultV2 = useMemo(
     () =>
       calculateSettlementV2({
@@ -205,8 +208,14 @@ export function SettlementDetails({
         expenses: expenses.map(expenseToDbShape),
         comps,
         venueCapacity,
+        adjustment: adjustment
+          ? {
+              amount: adjustment.amount,
+              description: adjustment.description,
+            }
+          : null,
       }),
-    [deal, ticketSales, comps, expenses, venueCapacity],
+    [deal, ticketSales, comps, expenses, venueCapacity, adjustment],
   );
 
   if (!result.supported) {
@@ -268,41 +277,10 @@ export function SettlementDetails({
   const atCap =
     deal.expenseCap != null && totalCappable >= deal.expenseCap;
 
-  // ── Phase 8.9 adjustment math ──────────────────────────────────────
-  // Single-line adjustment applies to the net pool. For vs / % of net
-  // we recompute the branch with the adjusted net; for flat / % of
-  // gross the adjustment passes through to the total unchanged.
+  // Phase 8.9.1 — the engine now bakes the adjustment into its
+  // canonical totalToArtist + netBoxOffice + trace, so we read straight
+  // from `result`. No local recomputation needed.
   const adjustmentAmount = adjustment?.amount ?? null;
-  const baseNet = netStep?.value ?? 0;
-  const baseBranch = branchStep?.value ?? 0;
-  const baseTotal = resultStep?.value ?? 0;
-  let adjustedNet = baseNet;
-  let adjustedBranch = baseBranch;
-  let adjustedTotal = baseTotal;
-  if (adjustmentAmount !== null) {
-    adjustedNet = baseNet + adjustmentAmount;
-    switch (deal.dealType) {
-      case "vs": {
-        const pct = deal.percentage ?? 0;
-        adjustedBranch = Math.max(
-          deal.guaranteeAmount ?? 0,
-          adjustedNet * pct,
-        );
-        adjustedTotal = baseTotal + (adjustedBranch - baseBranch);
-        break;
-      }
-      case "percentage_of_net": {
-        const pct = deal.percentage ?? 0;
-        adjustedBranch = adjustedNet * pct;
-        adjustedTotal = baseTotal + (adjustedBranch - baseBranch);
-        break;
-      }
-      // flat / percentage_of_gross / door — pass-through.
-      default:
-        adjustedTotal = baseTotal + adjustmentAmount;
-        break;
-    }
-  }
 
   // Editor state machine:
   //   hidden   — no dispute + no adjustment
@@ -608,6 +586,11 @@ export function SettlementDetails({
               className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono"
             />
           </div>
+          <div className="text-[10.5px] text-amber-800/90 leading-relaxed">
+            <strong>Sign convention:</strong> <span className="text-emerald-700">positive</span> = more to artist (e.g.,
+            refund a charge they shouldn&apos;t have absorbed). <span className="text-rose-700">Negative</span> = less to artist
+            (e.g., additional venue deduction). The amount applies directly to the artist&apos;s net pool.
+          </div>
           {adjustmentError && (
             <div className="text-[11.5px] text-rose-700">{adjustmentError}</div>
           )}
@@ -680,7 +663,10 @@ export function SettlementDetails({
       />
       <DetailsRow label="Net Box Office" value={netBoxOffice} dim />
       <DetailsRow label="− Net Expenses" value={-cappedTotal} dim />
-      {adjustmentAmount !== null && (
+      {/* Phase 8.9.1 — show the adjustment line BEFORE Net pool when it
+           feeds the branch (vs / % of net), so Net pool reads as the
+           post-adjustment value the percentage branch uses. */}
+      {adjustmentAmount !== null && result.adjustmentApplied?.appliedToNet && (
         <DetailsRow
           label="+ Other adjustments"
           value={adjustmentAmount}
@@ -691,10 +677,10 @@ export function SettlementDetails({
       {netStep && (
         <DetailsRow
           label="= Net pool"
-          value={adjustedNet}
+          value={result.netBoxOffice}
           note={
-            adjustmentAmount !== null
-              ? `Net pool after adjustment = ${formatMoney(adjustedNet)}`
+            adjustmentAmount !== null && result.adjustmentApplied?.appliedToNet
+              ? `Net pool after adjustment = ${formatMoney(result.netBoxOffice)}`
               : "net to artist pool"
           }
         />
@@ -702,16 +688,25 @@ export function SettlementDetails({
       {branchStep && (
         <DetailsRow
           label={branchStep.label}
-          value={adjustedBranch}
+          value={branchStep.value}
           note={
-            adjustmentAmount !== null &&
-            (deal.dealType === "vs" || deal.dealType === "percentage_of_net")
-              ? `Recomputed with adjusted net ${formatMoney(adjustedNet)}`
+            adjustmentAmount !== null && result.adjustmentApplied?.appliedToNet
+              ? `Recomputed with adjusted net ${formatMoney(result.netBoxOffice)}`
               : branchStep.formula
           }
         />
       )}
-      <DetailsTotal label="Total to artist" value={adjustedTotal} />
+      {/* For flat / % of gross the adjustment is a pass-through on the
+           total, not a net-pool input, so the row lives after the branch. */}
+      {adjustmentAmount !== null && !result.adjustmentApplied?.appliedToNet && (
+        <DetailsRow
+          label="+ Other adjustments"
+          value={adjustmentAmount}
+          note={adjustment?.description}
+          dim
+        />
+      )}
+      <DetailsTotal label="Total to artist" value={result.totalToArtist} />
 
       <style>{`
         @keyframes flash-bg {

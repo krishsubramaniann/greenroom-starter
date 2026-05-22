@@ -126,6 +126,22 @@ export type CalcInputV2 = {
   comps: Comp[];
   venueCapacity: number;
   ticketsSold?: number;
+  /**
+   * Phase 8.9.1 — when the agent disputed and Mariana saved a single
+   * adjustment line, the engine bakes that signed amount into the
+   * canonical netBoxOffice + totalToArtist so every surface that reads
+   * the engine output sees the same post-adjustment number.
+   *
+   * Routing by deal type:
+   *   - vs                  → adjustment applies to net before branch
+   *                          (the percentage branch is recomputed on the
+   *                          adjusted net, then max(guarantee, %·net))
+   *   - percentage_of_net   → adjustment applies to net before branch
+   *   - flat                → adjustment is a pass-through additive on
+   *                          totalToArtist (flat ignores net entirely)
+   *   - percentage_of_gross → pass-through (percentage doesn't read net)
+   */
+  adjustment?: { amount: number; description?: string } | null;
 };
 
 export type SettlementResultV2 =
@@ -142,6 +158,15 @@ export type SettlementResultV2 =
       grossBoxOffice: number;
       netBoxOffice: number;
       totalExpenses: number;
+      /** Phase 8.9.1 — when an adjustment was supplied, describes how it
+       *  was integrated. Null when no adjustment was passed. */
+      adjustmentApplied: {
+        amount: number;
+        description: string | null;
+        /** True for vs / % of net (folded into the branch via the net
+         *  pool). False for flat / % of gross (tail added). */
+        appliedToNet: boolean;
+      } | null;
     }
   | { supported: false; reason: string; dealType: Deal["dealType"] };
 
@@ -201,6 +226,7 @@ const KEY_GROSS = "gross";
 const KEY_FEES = "fees";
 const KEY_EXPENSES = "expenses";
 const KEY_NET = "net";
+const KEY_ADJUSTMENT = "adjustment";
 const KEY_BRANCH = "branch";
 const KEY_RESULT = "result";
 
@@ -457,6 +483,35 @@ export function calculateSettlementV2(
     formula: `Net = ${fmtMoney(net)}`,
   });
 
+  // ── 6½. Single-line adjustment (Phase 8.9.1) ─────────────────────────────
+  // The dispute-resolution adjustment lives between net pool and branch
+  // for vs / % of net deals so the percentage branch sees the adjusted
+  // pool. For flat / % of gross the branch ignores net, so we tail the
+  // adjustment onto artistTake after branch — but emit the trace step
+  // here either way for a consistent narrative.
+  const adjustment = input.adjustment ?? null;
+  const adjustmentAppliedToNet =
+    adjustment != null &&
+    (deal.dealType === "vs" || deal.dealType === "percentage_of_net");
+  if (adjustment != null) {
+    if (adjustmentAppliedToNet) {
+      net += adjustment.amount;
+    }
+    trace.push({
+      key: KEY_ADJUSTMENT,
+      label: "Other adjustments",
+      value: adjustment.amount,
+      kind: "expense",
+      source: {
+        type: "derived",
+        detail: adjustment.description ?? "single-line adjustment",
+      },
+      formula: adjustmentAppliedToNet
+        ? `Adjusted net = ${fmtMoney(net)}`
+        : `Pass-through adjustment: ${fmtSigned(adjustment.amount)}`,
+    });
+  }
+
   // ── 7. Branch computation ────────────────────────────────────────────────
   const guaranteeBranch = deal.guaranteeAmount ?? 0;
   const { value: percentageBranch, ambiguous: percentageBranchAmbiguous } =
@@ -552,6 +607,13 @@ export function calculateSettlementV2(
     });
   }
 
+  // Phase 8.9.1 — pass-through adjustment tail for flat / % of gross.
+  // For vs / % of net the adjustment is already inside `base` via the
+  // adjusted net pool, so don't double-count.
+  if (adjustment != null && !adjustmentAppliedToNet) {
+    artistTake += adjustment.amount;
+  }
+
   // ── Result ───────────────────────────────────────────────────────────────
   const totalToArtist = round2(artistTake);
 
@@ -577,6 +639,14 @@ export function calculateSettlementV2(
     grossBoxOffice: round2(grossFromTickets),
     netBoxOffice: round2(net),
     totalExpenses: round2(cappedTotal),
+    adjustmentApplied:
+      adjustment != null
+        ? {
+            amount: adjustment.amount,
+            description: adjustment.description ?? null,
+            appliedToNet: adjustmentAppliedToNet,
+          }
+        : null,
   };
 }
 

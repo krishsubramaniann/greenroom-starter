@@ -21,7 +21,11 @@ import {
   deals,
   shareLinks,
   activityEvents,
+  ticketSales as ticketSalesTable,
+  expenses as expensesTable,
+  comps as compsTable,
 } from "@/db/schema";
+import { calculateSettlementV2 } from "@/lib/dealMathV2";
 
 const PM_ACTOR_NAME = "Mariana Reyes";
 const PM_ACTOR_ROLE = "Booker";
@@ -80,6 +84,32 @@ export async function POST(req: NextRequest) {
   const now = new Date();
   const trimmedDescription = description.trim();
 
+  // Phase 8.9.1 — recompute the canonical post-adjustment total so the
+  // settlements.total_to_artist column (read by /shows index, show
+  // detail page, metrics, activity rollups) stays in sync. Without
+  // this, those surfaces show the pre-adjustment value while the
+  // settle page + agent view + GM mobile show the post-adjustment one.
+  const [deal, showTickets, showExpenses, showComps] = await Promise.all([
+    db.select().from(deals).where(eq(deals.showId, showId)).limit(1),
+    db.select().from(ticketSalesTable).where(eq(ticketSalesTable.showId, showId)),
+    db.select().from(expensesTable).where(eq(expensesTable.showId, showId)),
+    db.select().from(compsTable).where(eq(compsTable.showId, showId)),
+  ]);
+  let newTotalToArtist: number | null = settlement.totalToArtist ?? null;
+  if (deal[0]) {
+    const recalc = calculateSettlementV2({
+      deal: deal[0],
+      ticketSales: showTickets,
+      expenses: showExpenses,
+      comps: showComps,
+      venueCapacity: 650,
+      adjustment: { amount, description: trimmedDescription },
+    });
+    if (recalc.supported) {
+      newTotalToArtist = recalc.totalToArtist;
+    }
+  }
+
   // Persist the adjustment + invalidate GM approval in the same write
   // so polling/UI can't catch a half-applied state.
   await db
@@ -89,6 +119,7 @@ export async function POST(req: NextRequest) {
       adjustmentAmount: amount,
       adjustmentSavedAt: now,
       adjustmentSavedBy: PM_ACTOR_NAME,
+      totalToArtist: newTotalToArtist,
       // Clear GM approval — Mariana edited the math, so the prior
       // approval is no longer covering the current settlement.
       gmApprovedAt: null,
@@ -108,7 +139,7 @@ export async function POST(req: NextRequest) {
       ),
     );
 
-  const [dealRow] = await db.select().from(deals).where(eq(deals.showId, showId));
+  const dealRow = deal[0];
 
   // Audit trail — adjustment first, then the GM-approval invalidation if
   // it actually applied.

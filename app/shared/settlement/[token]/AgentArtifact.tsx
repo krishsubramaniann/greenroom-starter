@@ -128,34 +128,11 @@ export function AgentArtifact({
     if (!reReviewMode || !signoffAt || !signoffText) return null;
     return { at: signoffAt, text: signoffText };
   }, [reReviewMode, signoffAt, signoffText]);
-  // Adjusted total — for the header big number we mirror the math
-  // SettlementDetails uses below.
-  const headerTotal = useMemo(() => {
-    if (!result.supported) return 0;
-    if (!adjustment) return result.totalToArtist;
-    const baseNet =
-      result.trace.find((s) => s.key === "net")?.value ?? 0;
-    const baseBranch =
-      result.trace.find((s) => s.key === "branch")?.value ?? 0;
-    const baseTotal = result.totalToArtist;
-    switch (deal.dealType) {
-      case "vs": {
-        const pct = deal.percentage ?? 0;
-        const adjBranch = Math.max(
-          deal.guaranteeAmount ?? 0,
-          (baseNet + adjustment.amount) * pct,
-        );
-        return baseTotal + (adjBranch - baseBranch);
-      }
-      case "percentage_of_net": {
-        const pct = deal.percentage ?? 0;
-        const adjBranch = (baseNet + adjustment.amount) * pct;
-        return baseTotal + (adjBranch - baseBranch);
-      }
-      default:
-        return baseTotal + adjustment.amount;
-    }
-  }, [result, adjustment, deal.dealType, deal.percentage, deal.guaranteeAmount]);
+  // Phase 8.9.1 — the engine bakes the adjustment into the canonical
+  // result.totalToArtist; surfaces read that directly so the number
+  // matches across Mariana's settle page, this agent view, and the GM
+  // mobile view.
+  const headerTotal = result.supported ? result.totalToArtist : 0;
 
   if (!result.supported) {
     return (
