@@ -53,5 +53,10 @@ export async function GET(req: NextRequest) {
     gmHeldAt: settlement?.gmHeldAt?.toISOString() ?? null,
     gmHoldReason: settlement?.gmHoldReason ?? null,
     paidAt: settlement?.paidAt?.toISOString() ?? null,
+    agentDisputedAt: settlement?.disputedAt?.toISOString() ?? null,
+    adjustmentDescription: settlement?.adjustmentDescription ?? null,
+    adjustmentAmount: settlement?.adjustmentAmount ?? null,
+    adjustmentSavedAt: settlement?.adjustmentSavedAt?.toISOString() ?? null,
+    adjustmentSavedBy: settlement?.adjustmentSavedBy ?? null,
   });
 }

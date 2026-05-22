@@ -476,6 +476,24 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 venueCapacity={650}
                 showId={show.id}
                 live={!viewOnly}
+                agentDisputed={
+                  !viewOnly &&
+                  settlement?.disputedAt != null &&
+                  signoff?.status === "questions"
+                }
+                adjustment={
+                  settlement?.adjustmentSavedAt &&
+                  settlement.adjustmentDescription &&
+                  settlement.adjustmentAmount != null
+                    ? {
+                        description: settlement.adjustmentDescription,
+                        amount: settlement.adjustmentAmount,
+                        savedAt: settlement.adjustmentSavedAt.toISOString(),
+                        savedBy: settlement.adjustmentSavedBy ?? "Booker",
+                      }
+                    : null
+                }
+                canEditAdjustment={!viewOnly}
               />
             </div>
 
@@ -498,6 +516,45 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                     {unresolved.map((a) => (
                       <AmbiguityCard key={a.id} ambiguity={a} showId={show.id} />
                     ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Currently-disputed banner — Phase 8.9. Surfaces only on
+                  Mariana's live view when the agent has disputed AND the
+                  adjustment row hasn't been saved yet. After save, this
+                  flips to a quieter "awaiting agent re-review" state. */}
+              {!viewOnly && settlement?.disputedAt && signoff?.status === "questions" && (
+                <Card accent="amber">
+                  <CardContent className="px-4 py-3">
+                    <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-amber-800 font-medium">
+                      <AlertTriangle className="size-3" />
+                      Currently disputed
+                    </div>
+                    {settlement.adjustmentSavedAt == null ? (
+                      <>
+                        <div className="text-[13px] text-amber-900 font-medium mt-1">
+                          {signoff.byName ?? "Agent"} disputed:
+                        </div>
+                        <div className="text-[12px] text-ink-700 mt-1 leading-relaxed">
+                          &ldquo;{signoff.text}&rdquo;
+                        </div>
+                        <div className="text-[11px] text-amber-700/90 mt-2 pt-2 border-t border-amber-100">
+                          Use the &ldquo;Other adjustments&rdquo; row below
+                          to add a single adjustment line, then resend.
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-[12.5px] text-amber-900 mt-1">
+                          Awaiting agent re-review
+                        </div>
+                        <div className="text-[11px] text-ink-700 mt-1">
+                          Adjustment saved · agent can now acknowledge or
+                          dispute again.
+                        </div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
               )}

@@ -40,11 +40,16 @@ export async function POST(req: NextRequest) {
   const { settlement, deal } = ctx.resource;
   const { name: agentName, role: agentRole } = agentAttribution(ctx);
   const now = new Date();
+  // Re-acknowledgement after Mariana saved a single-line adjustment
+  // — we clear the prior dispute state but mark the activity event so
+  // the lifecycle/feed reads "agent re-acked after adjustment".
+  const afterAdjustment = settlement.adjustmentSavedAt != null;
 
   await db
     .update(shareLinks)
     .set({
       signoffStatus: "agreed",
+      signoffText: null,
       signoffByName: agentName,
       signoffAt: now,
     })
@@ -56,6 +61,7 @@ export async function POST(req: NextRequest) {
       status: "finalized",
       signedAt: settlement.signedAt ?? now,
       finalizedAt: now,
+      disputedAt: null,
     })
     .where(eq(settlements.id, settlement.id));
 
@@ -68,8 +74,13 @@ export async function POST(req: NextRequest) {
     actorType: "agent",
     actorName: agentName,
     actorRole: agentRole,
-    summary: `${agentName} acknowledged & accepted the settlement`,
-    payloadJson: JSON.stringify({ resource_type: "settlement" }),
+    summary: afterAdjustment
+      ? `${agentName} acknowledged the revised settlement`
+      : `${agentName} acknowledged & accepted the settlement`,
+    payloadJson: JSON.stringify({
+      resource_type: "settlement",
+      afterAdjustment,
+    }),
     occurredAt: now,
   });
 

@@ -45,6 +45,10 @@ export async function POST(req: NextRequest) {
   const { name: agentName, role: agentRole } = agentAttribution(ctx);
   const now = new Date();
   const reason = disputeReason.trim();
+  // Second dispute after Mariana has already saved an adjustment line
+  // — the adjustment stays locked, but the activity event captures the
+  // re-raise so the feed reads "agent disputed again".
+  const secondDispute = settlement.adjustmentSavedAt != null;
 
   await db
     .update(shareLinks)
@@ -73,10 +77,13 @@ export async function POST(req: NextRequest) {
     actorType: "agent",
     actorName: agentName,
     actorRole: agentRole,
-    summary: `${agentName} disputed: "${reason.slice(0, 80)}${reason.length > 80 ? "…" : ""}"`,
+    summary: secondDispute
+      ? `${agentName} disputed the revised settlement: "${reason.slice(0, 80)}${reason.length > 80 ? "…" : ""}"`
+      : `${agentName} disputed: "${reason.slice(0, 80)}${reason.length > 80 ? "…" : ""}"`,
     payloadJson: JSON.stringify({
       resource_type: "settlement",
       reason,
+      secondDispute,
     }),
     occurredAt: now,
   });

@@ -340,6 +340,18 @@ export const settlements = sqliteTable("settlements", {
    *  until cleared. Reason captured for Mariana's banner. */
   gmHeldAt: integer("gm_held_at", { mode: "timestamp" }),
   gmHoldReason: text("gm_hold_reason"),
+  /**
+   * Phase 8.9: post-dispute adjustment. When the agent disputes, Mariana
+   * can capture a single adjustment line on the settle page (e.g.
+   * "Hospitality adjustment per agent request, -$200") + push the
+   * revised settlement back to the agent. Signed amount feeds the
+   * Section C math. One-shot: once saved, the row is locked, even if
+   * the agent re-disputes.
+   */
+  adjustmentDescription: text("adjustment_description"),
+  adjustmentAmount: real("adjustment_amount"),
+  adjustmentSavedAt: integer("adjustment_saved_at", { mode: "timestamp" }),
+  adjustmentSavedBy: text("adjustment_saved_by"),
 
   grossBoxOffice: real("gross_box_office"),
   netBoxOffice: real("net_box_office"),
@@ -460,6 +472,8 @@ export const activityEvents = sqliteTable("activity_events", {
       "agent_questioned",
       "agent_acknowledged",
       "agent_disputed",
+      "settlement_adjusted",
+      "gm_approval_invalidated",
       "gm_approved",
       "gm_held",
       "wire_sent",

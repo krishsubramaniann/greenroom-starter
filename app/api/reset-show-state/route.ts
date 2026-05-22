@@ -42,6 +42,8 @@ type PostDealEventType =
   | "agent_questioned"
   | "agent_acknowledged"
   | "agent_disputed"
+  | "settlement_adjusted"
+  | "gm_approval_invalidated"
   | "ticket_milestone"
   | "comp_logged"
   | "gm_approved"
@@ -63,6 +65,8 @@ const POST_DEAL_EVENT_TYPES: PostDealEventType[] = [
   "agent_questioned",
   "agent_acknowledged",
   "agent_disputed",
+  "settlement_adjusted",
+  "gm_approval_invalidated",
   "ticket_milestone",
   "comp_logged",
   "gm_approved",

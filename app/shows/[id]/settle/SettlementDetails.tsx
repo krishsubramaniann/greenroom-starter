@@ -19,7 +19,10 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
+  Lock,
   Paperclip,
   Receipt,
   Smartphone,
@@ -50,6 +53,13 @@ export type DetailsExpense = {
   receiptPath: string | null;
 };
 
+export type AdjustmentDetails = {
+  description: string;
+  amount: number;
+  savedAt: string;
+  savedBy: string;
+};
+
 type Props = {
   deal: Deal;
   ticketSales: TicketSale[];
@@ -60,6 +70,16 @@ type Props = {
   /** When false, no polling, no "just now" pills. Used by the agent
    *  read-only one-pager where the settlement is frozen at send time. */
   live?: boolean;
+  /** Phase 8.9: dispute state surfaced from the most recent agent
+   *  settlement share-link. When true + adjustment is null, Mariana
+   *  sees the editable "Other adjustments" row. */
+  agentDisputed?: boolean;
+  /** Phase 8.9: saved adjustment line, or null. */
+  adjustment?: AdjustmentDetails | null;
+  /** Phase 8.9: render the adjustment row in editable mode. Only true on
+   *  Mariana's settle page. The agent shared view sees the locked row
+   *  but never the editor. */
+  canEditAdjustment?: boolean;
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -100,10 +120,20 @@ export function SettlementDetails({
   venueCapacity,
   showId,
   live = true,
+  agentDisputed = false,
+  adjustment = null,
+  canEditAdjustment = false,
 }: Props) {
+  const router = useRouter();
   const [expenses, setExpenses] = useState<DetailsExpense[]>(initialExpenses);
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
   const [openReceipt, setOpenReceipt] = useState<ReceiptModalData | null>(null);
+  const [adjustmentDraft, setAdjustmentDraft] = useState<{
+    description: string;
+    amount: string;
+  }>({ description: "", amount: "" });
+  const [adjustmentSaving, setAdjustmentSaving] = useState(false);
+  const [adjustmentError, setAdjustmentError] = useState<string | null>(null);
 
   const latestAtRef = useRef<string>(
     initialExpenses.length > 0
@@ -237,6 +267,96 @@ export function SettlementDetails({
     totalCappable < deal.expenseCap;
   const atCap =
     deal.expenseCap != null && totalCappable >= deal.expenseCap;
+
+  // ── Phase 8.9 adjustment math ──────────────────────────────────────
+  // Single-line adjustment applies to the net pool. For vs / % of net
+  // we recompute the branch with the adjusted net; for flat / % of
+  // gross the adjustment passes through to the total unchanged.
+  const adjustmentAmount = adjustment?.amount ?? null;
+  const baseNet = netStep?.value ?? 0;
+  const baseBranch = branchStep?.value ?? 0;
+  const baseTotal = resultStep?.value ?? 0;
+  let adjustedNet = baseNet;
+  let adjustedBranch = baseBranch;
+  let adjustedTotal = baseTotal;
+  if (adjustmentAmount !== null) {
+    adjustedNet = baseNet + adjustmentAmount;
+    switch (deal.dealType) {
+      case "vs": {
+        const pct = deal.percentage ?? 0;
+        adjustedBranch = Math.max(
+          deal.guaranteeAmount ?? 0,
+          adjustedNet * pct,
+        );
+        adjustedTotal = baseTotal + (adjustedBranch - baseBranch);
+        break;
+      }
+      case "percentage_of_net": {
+        const pct = deal.percentage ?? 0;
+        adjustedBranch = adjustedNet * pct;
+        adjustedTotal = baseTotal + (adjustedBranch - baseBranch);
+        break;
+      }
+      // flat / percentage_of_gross / door — pass-through.
+      default:
+        adjustedTotal = baseTotal + adjustmentAmount;
+        break;
+    }
+  }
+
+  // Editor state machine:
+  //   hidden   — no dispute + no adjustment
+  //   editor   — agentDisputed + no adjustment + onSaveAdjustment in scope
+  //   locked   — adjustment is set (final, even if agent re-disputes)
+  const adjustmentMode: "hidden" | "editor" | "locked" =
+    adjustment != null
+      ? "locked"
+      : agentDisputed && canEditAdjustment
+        ? "editor"
+        : "hidden";
+
+  async function handleSaveAdjustment(e: React.FormEvent) {
+    e.preventDefault();
+    setAdjustmentError(null);
+    const trimmedDescription = adjustmentDraft.description.trim();
+    const parsedAmount = parseFloat(adjustmentDraft.amount);
+    if (!trimmedDescription) {
+      setAdjustmentError("Description is required.");
+      return;
+    }
+    if (!Number.isFinite(parsedAmount) || parsedAmount === 0) {
+      setAdjustmentError(
+        "Amount must be a non-zero number (positive or negative).",
+      );
+      return;
+    }
+    setAdjustmentSaving(true);
+    try {
+      const res = await fetch("/api/save-adjustment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          showId,
+          description: trimmedDescription,
+          amount: parsedAmount,
+        }),
+      });
+      if (!res.ok) {
+        const errJson = (await res
+          .json()
+          .catch(() => null)) as { error?: string } | null;
+        throw new Error(errJson?.error ?? "Save failed");
+      }
+      setAdjustmentDraft({ description: "", amount: "" });
+      router.refresh();
+    } catch (err) {
+      setAdjustmentError(
+        err instanceof Error ? err.message : "Save failed. Please retry.",
+      );
+    } finally {
+      setAdjustmentSaving(false);
+    }
+  }
 
   return (
     <section className="rounded-lg border border-ink-200 bg-white overflow-hidden">
@@ -449,6 +569,110 @@ export function SettlementDetails({
       </div>
       <DetailsSubtotal label="Net Expenses" value={cappedTotal} />
 
+      {/* ── Phase 8.9 — Other adjustments (dispute resolution) ────── */}
+      {adjustmentMode === "editor" && (
+        <form
+          onSubmit={handleSaveAdjustment}
+          className="px-5 py-4 border-b border-ink-100 bg-amber-50/40 space-y-2.5"
+        >
+          <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-amber-900 font-medium">
+            <AlertTriangle className="size-3.5" />
+            Other adjustments
+            <span className="ml-1 normal-case tracking-normal text-[10.5px] text-amber-700">
+              · editable while dispute is active · saving locks the row
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2">
+            <input
+              type="text"
+              value={adjustmentDraft.description}
+              onChange={(e) =>
+                setAdjustmentDraft((d) => ({
+                  ...d,
+                  description: e.target.value,
+                }))
+              }
+              placeholder="e.g. Hospitality adjustment per agent request"
+              disabled={adjustmentSaving}
+              className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
+            />
+            <input
+              type="text"
+              inputMode="decimal"
+              value={adjustmentDraft.amount}
+              onChange={(e) =>
+                setAdjustmentDraft((d) => ({ ...d, amount: e.target.value }))
+              }
+              placeholder="-200 or 200"
+              disabled={adjustmentSaving}
+              className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono"
+            />
+          </div>
+          {adjustmentError && (
+            <div className="text-[11.5px] text-rose-700">{adjustmentError}</div>
+          )}
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={adjustmentSaving}
+              className="rounded-md bg-amber-700 hover:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[12.5px] font-medium px-3 py-1.5"
+            >
+              {adjustmentSaving
+                ? "Saving…"
+                : "Save and send revised settlement to agent"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAdjustmentDraft({ description: "", amount: "" });
+                setAdjustmentError(null);
+              }}
+              disabled={adjustmentSaving}
+              className="text-[12.5px] text-ink-600 hover:text-ink-900 underline underline-offset-2"
+            >
+              Cancel
+            </button>
+            <span className="ml-auto text-[10.5px] text-amber-800">
+              Saving invalidates any prior GM approval — you'll need to
+              re-send to GM after the agent re-acknowledges.
+            </span>
+          </div>
+        </form>
+      )}
+      {adjustmentMode === "locked" && adjustment && (
+        <div className="px-5 py-3 border-b border-ink-100 bg-amber-50/30">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-amber-900 font-medium">
+                <Lock className="size-3" />
+                Other adjustments
+              </div>
+              <div className="text-[12.5px] text-ink-900 mt-1">
+                {adjustment.description}
+              </div>
+              <div className="text-[10.5px] text-ink-500 mt-0.5">
+                Saved by {adjustment.savedBy} ·{" "}
+                {new Date(adjustment.savedAt).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </div>
+            </div>
+            <div
+              className={cn(
+                "font-mono tabular text-[14px] font-medium shrink-0",
+                adjustment.amount < 0 ? "text-rose-700" : "text-emerald-700",
+              )}
+            >
+              {adjustment.amount > 0 ? "+" : ""}
+              {formatMoney(adjustment.amount)}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Section C — SETTLEMENT TO ARTIST ─────────────────────── */}
       <SectionHeader
         icon={<Wallet className="size-3.5" />}
@@ -456,17 +680,38 @@ export function SettlementDetails({
       />
       <DetailsRow label="Net Box Office" value={netBoxOffice} dim />
       <DetailsRow label="− Net Expenses" value={-cappedTotal} dim />
+      {adjustmentAmount !== null && (
+        <DetailsRow
+          label="+ Other adjustments"
+          value={adjustmentAmount}
+          note={adjustment?.description}
+          dim
+        />
+      )}
       {netStep && (
-        <DetailsRow label="= Net pool" value={netStep.value} note="net to artist pool" />
+        <DetailsRow
+          label="= Net pool"
+          value={adjustedNet}
+          note={
+            adjustmentAmount !== null
+              ? `Net pool after adjustment = ${formatMoney(adjustedNet)}`
+              : "net to artist pool"
+          }
+        />
       )}
       {branchStep && (
         <DetailsRow
           label={branchStep.label}
-          value={branchStep.value}
-          note={branchStep.formula}
+          value={adjustedBranch}
+          note={
+            adjustmentAmount !== null &&
+            (deal.dealType === "vs" || deal.dealType === "percentage_of_net")
+              ? `Recomputed with adjusted net ${formatMoney(adjustedNet)}`
+              : branchStep.formula
+          }
         />
       )}
-      <DetailsTotal label="Total to artist" value={resultStep?.value ?? 0} />
+      <DetailsTotal label="Total to artist" value={adjustedTotal} />
 
       <style>{`
         @keyframes flash-bg {

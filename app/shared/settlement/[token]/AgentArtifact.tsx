@@ -15,13 +15,16 @@
  * of the action bar.
  */
 
-import { useState } from "react";
-import { Check, HelpCircle, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, HelpCircle, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlainBadge } from "@/components/ui/badge";
 import { formatMoney, formatShowDateFull } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { SettlementDetails } from "@/app/shows/[id]/settle/SettlementDetails";
+import {
+  SettlementDetails,
+  type AdjustmentDetails,
+} from "@/app/shows/[id]/settle/SettlementDetails";
 import type { DetailsExpense } from "@/app/shows/[id]/settle/SettlementDetails";
 import type { SettlementResultV2 } from "@/lib/dealMathV2";
 import type {
@@ -86,6 +89,73 @@ export function AgentArtifact({
   const [error, setError] = useState<string | null>(null);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
+
+  // Phase 8.9 — Mariana saved a single-line adjustment after the agent
+  // disputed. We surface a "Updated by Mariana" banner at the top,
+  // inject the adjustment line into Section C, and reopen both CTAs
+  // for a second pass (Acknowledge or re-Dispute). The previous
+  // dispute reason is shown as an indicator below the total.
+  const adjustment: AdjustmentDetails | null = useMemo(() => {
+    if (
+      !settlement.adjustmentSavedAt ||
+      settlement.adjustmentDescription == null ||
+      settlement.adjustmentAmount == null
+    ) {
+      return null;
+    }
+    return {
+      description: settlement.adjustmentDescription,
+      amount: settlement.adjustmentAmount,
+      savedAt:
+        typeof settlement.adjustmentSavedAt === "string"
+          ? settlement.adjustmentSavedAt
+          : settlement.adjustmentSavedAt.toISOString(),
+      savedBy: settlement.adjustmentSavedBy ?? "Booker",
+    };
+  }, [
+    settlement.adjustmentSavedAt,
+    settlement.adjustmentDescription,
+    settlement.adjustmentAmount,
+    settlement.adjustmentSavedBy,
+  ]);
+  // Re-review mode = an adjustment is saved AND the agent hasn't
+  // re-acknowledged yet. Once they re-ack (status flips to "agreed")
+  // we collapse back to the normal accepted-stamp footer.
+  const reReviewMode = adjustment != null && status === "questions";
+  // Capture the prior dispute info before the agent re-acts in this
+  // session (the stamp state will overwrite signoffAt/Text on click).
+  const priorDispute = useMemo(() => {
+    if (!reReviewMode || !signoffAt || !signoffText) return null;
+    return { at: signoffAt, text: signoffText };
+  }, [reReviewMode, signoffAt, signoffText]);
+  // Adjusted total — for the header big number we mirror the math
+  // SettlementDetails uses below.
+  const headerTotal = useMemo(() => {
+    if (!result.supported) return 0;
+    if (!adjustment) return result.totalToArtist;
+    const baseNet =
+      result.trace.find((s) => s.key === "net")?.value ?? 0;
+    const baseBranch =
+      result.trace.find((s) => s.key === "branch")?.value ?? 0;
+    const baseTotal = result.totalToArtist;
+    switch (deal.dealType) {
+      case "vs": {
+        const pct = deal.percentage ?? 0;
+        const adjBranch = Math.max(
+          deal.guaranteeAmount ?? 0,
+          (baseNet + adjustment.amount) * pct,
+        );
+        return baseTotal + (adjBranch - baseBranch);
+      }
+      case "percentage_of_net": {
+        const pct = deal.percentage ?? 0;
+        const adjBranch = (baseNet + adjustment.amount) * pct;
+        return baseTotal + (adjBranch - baseBranch);
+      }
+      default:
+        return baseTotal + adjustment.amount;
+    }
+  }, [result, adjustment, deal.dealType, deal.percentage, deal.guaranteeAmount]);
 
   if (!result.supported) {
     return (
@@ -157,7 +227,12 @@ export function AgentArtifact({
     }
   }
 
-  const agentResponded = status === "agreed" || status === "questions";
+  // Standard flow: any non-open signoff status means the agent has acted
+  // and we show the stamp. Re-review override: when Mariana adjusted
+  // post-dispute, status is still "questions" but we treat the page as
+  // unresolved so the CTAs reopen.
+  const agentResponded =
+    (status === "agreed" || status === "questions") && !reReviewMode;
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -176,14 +251,55 @@ export function AgentArtifact({
             </span>
           </div>
           <div className="mt-3 font-mono tabular text-[32px] sm:text-[40px] text-ink-900 leading-none">
-            {formatMoney(result.totalToArtist)}
+            {formatMoney(headerTotal)}
           </div>
           <div className="text-[12px] text-ink-500 mt-1">
             Total to artist · for {agentName}
             {agencyName ? ` (${agencyName})` : ""}
+            {adjustment && (
+              <span className="ml-2 inline-flex items-center gap-1 text-amber-800 font-medium">
+                · revised
+              </span>
+            )}
           </div>
+          {priorDispute && (
+            <div className="mt-3 text-[11.5px] text-amber-800 bg-amber-50/60 border border-amber-200/60 rounded-md px-3 py-1.5">
+              You previously disputed on{" "}
+              {new Date(priorDispute.at).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+              : &ldquo;{priorDispute.text}&rdquo;
+            </div>
+          )}
         </div>
       </header>
+
+      {adjustment && (
+        <div className="bg-amber-50/70 border-b border-amber-200/60">
+          <div className="max-w-3xl mx-auto px-5 sm:px-6 py-3 flex items-start gap-2.5">
+            <RefreshCw className="size-4 text-amber-800 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <div className="text-[12.5px] text-amber-900 font-medium">
+                Updated by {adjustment.savedBy} on{" "}
+                {new Date(adjustment.savedAt).toLocaleString([], {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </div>
+              <div className="text-[11.5px] text-ink-700 mt-0.5 leading-relaxed">
+                A single adjustment line was added in response to your
+                dispute. Review the revised settlement below — see
+                &ldquo;Other adjustments&rdquo; in Section C.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-3xl mx-auto px-5 sm:px-6 py-6 space-y-5 pb-40">
         {/* Deal terms summary — 4 fields, read-only */}
@@ -235,6 +351,7 @@ export function AgentArtifact({
           venueCapacity={650}
           showId={show.id}
           live={false}
+          adjustment={adjustment}
         />
 
         {/* Error banner */}
