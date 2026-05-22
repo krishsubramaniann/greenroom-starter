@@ -280,7 +280,9 @@ export function DealCaptureFlow({
       }
       const saved = await res.json().catch(() => ({}));
       if (saved?.dealShareToken) setDealShareToken(saved.dealShareToken);
-      setPhase("saved");
+      // Auto-navigate back to the show detail page — the navigation IS
+      // the confirmation, no stuck "Saved ✓" state.
+      router.push(`/shows/${showId}`);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -385,9 +387,11 @@ export function DealCaptureFlow({
             )}
           </div>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => router.back()}>
-              Cancel
-            </Button>
+            {phase !== "saving" && (
+              <Button variant="ghost" onClick={() => router.back()}>
+                Cancel
+              </Button>
+            )}
             <Button
               onClick={handleSave}
               disabled={phase === "saving"}
@@ -397,11 +401,9 @@ export function DealCaptureFlow({
               <Save className="size-3.5" />
               {phase === "saving"
                 ? "Saving…"
-                : phase === "saved"
-                  ? "Saved ✓"
-                  : allResolved
-                    ? "Save & lock deal"
-                    : "Save draft"}
+                : allResolved
+                  ? "Save & lock deal"
+                  : "Save draft"}
             </Button>
           </div>
         </div>

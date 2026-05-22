@@ -1,17 +1,14 @@
 "use client";
 
 /**
- * Top-right action bar on the show detail page. Three slots, sequentially
- * gated:
+ * Top-right action bar on the show detail page. Show-lifecycle actions
+ * only — the deal-capture entry point lives inside the Deal terms panel
+ * to avoid duplicate CTAs (Phase 8 Part B consolidation).
  *
- *   [Capture deal] / [Recapture deal]   — always available; primary until
- *                                         a deal exists, then demotes
- *   [End of show]                       — primary once a deal exists,
- *                                         disabled before. Becomes
- *                                         [Show complete ✓] after click,
- *                                         with a tiny [Reset] demo link
- *   [View settlement]                   — primary once endOfShowAt is
- *                                         set, disabled before
+ *   [End of show]      — primary once a deal exists; disabled before.
+ *                        Becomes [Show complete ✓] after click, with a
+ *                        tiny [Reset] demo link.
+ *   [View settlement]  — primary once endOfShowAt is set; disabled before.
  *
  * End-of-show + reset trigger /api/end-of-show + /api/reset-show-state
  * respectively, then router.refresh() so the server-rendered shell picks
@@ -26,7 +23,6 @@ import {
   FileSpreadsheet,
   Loader2,
   RotateCcw,
-  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -96,19 +92,7 @@ export function ShowActionBar({ showId, hasDeal, endOfShowAt }: Props) {
   return (
     <div className="flex flex-col items-end gap-2 mt-6 shrink-0">
       <div className="flex items-center gap-2 flex-wrap justify-end">
-        {/* Slot 1 — Capture deal */}
-        <Link href={`/shows/${showId}/deal/capture`}>
-          <Button
-            variant={hasDeal ? "secondary" : "brand"}
-            size={hasDeal ? "default" : "lg"}
-            className="gap-1.5"
-          >
-            <Sparkles className="size-3.5" />
-            {hasDeal ? "Recapture deal" : "Capture deal"}
-          </Button>
-        </Link>
-
-        {/* Slot 2 — End of show */}
+        {/* Slot 1 — End of show */}
         {isEnded ? (
           <Button
             variant="secondary"
@@ -133,7 +117,7 @@ export function ShowActionBar({ showId, hasDeal, endOfShowAt }: Props) {
           </Button>
         )}
 
-        {/* Slot 3 — View settlement */}
+        {/* Slot 2 — View settlement */}
         {isEnded ? (
           <Link href={`/shows/${showId}/settle`}>
             <Button variant="brand" size="lg" className="gap-1.5">

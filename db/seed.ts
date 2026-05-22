@@ -875,7 +875,7 @@ async function main() {
   await db.insert(venues).values({ id: VENUE_ID, name: "The Crescent", capacity: VENUE_CAPACITY, city: "Nashville", state: "TN" });
   await db.insert(users).values([
     { id: MARIANA_ID, name: "Mariana Reyes", email: "mariana@thecrescentnashville.com", role: "booker", venueId: VENUE_ID },
-    { id: MARCUS_ID, name: "Marcus Holland", email: "marcus@thecrescentnashville.com", role: "gm", venueId: VENUE_ID },
+    { id: MARCUS_ID, name: "Marcus Chen", email: "marcus@thecrescentnashville.com", role: "gm", venueId: VENUE_ID },
   ]);
   await db.insert(agencies).values(AGENCIES);
   await db.insert(agents).values(AGENT_DEFS);

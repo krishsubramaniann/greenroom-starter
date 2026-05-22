@@ -305,6 +305,17 @@ export const settlements = sqliteTable("settlements", {
    * functions as her "I've reviewed what came in" affirmation.
    */
   expensesConfirmedAt: integer("expenses_confirmed_at", { mode: "timestamp" }),
+  /**
+   * Phase-8 GM wire-release flow. After the agent acknowledges, Mariana
+   * shares a gm_approval magic link with the GM. The GM clicks
+   * [Approve & release wire] on /m/gm-approve/<token> → gmApprovedAt is
+   * stamped and settlement.status flips to "paid".
+   */
+  gmApprovedAt: integer("gm_approved_at", { mode: "timestamp" }),
+  /** GM clicked [Hold for review] instead — lifecycle stays out of Paid
+   *  until cleared. Reason captured for Mariana's banner. */
+  gmHeldAt: integer("gm_held_at", { mode: "timestamp" }),
+  gmHoldReason: text("gm_hold_reason"),
 
   grossBoxOffice: real("gross_box_office"),
   netBoxOffice: real("net_box_office"),
@@ -347,7 +358,7 @@ export const walkthroughAcks = sqliteTable("walkthrough_acks", {
 export const shareLinks = sqliteTable("share_links", {
   id: text("id").primaryKey(),
   resourceType: text("resource_type", {
-    enum: ["deal", "settlement", "pm_expense"],
+    enum: ["deal", "settlement", "pm_expense", "gm_approval"],
   }).notNull(),
   resourceId: text("resource_id").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
@@ -426,6 +437,7 @@ export const activityEvents = sqliteTable("activity_events", {
       "agent_acknowledged",
       "agent_disputed",
       "gm_approved",
+      "gm_held",
       "wire_sent",
       "settlement_paid",
       "email_received",

@@ -24,6 +24,7 @@ import {
   HelpCircle,
   Inbox,
   Mail,
+  ShieldCheck,
   Smartphone,
   X,
 } from "lucide-react";
@@ -34,12 +35,18 @@ type Props = {
   showId: string;
   pmExpenseUrl: string;
   agentShareUrl: string | null;
+  /** Magic-link URL Mariana texts to the GM for wire approval.
+   *  Server lazy-creates the gm_approval share_link on settle-page load. */
+  gmApprovalUrl: string | null;
   initialPmExpensesFinalizedAt: string | null;
   initialExpensesConfirmedAt: string | null;
   initialAgentSignoffStatus: "open" | "agreed" | "questions" | null;
   initialAgentSignoffByName: string | null;
   initialAgentSignoffAt: string | null;
   initialAgentSignoffText: string | null;
+  initialGmApprovedAt: string | null;
+  initialGmHeldAt: string | null;
+  initialGmHoldReason: string | null;
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -48,12 +55,16 @@ export function SettleCtaBar({
   showId,
   pmExpenseUrl,
   agentShareUrl,
+  gmApprovalUrl,
   initialPmExpensesFinalizedAt,
   initialExpensesConfirmedAt,
   initialAgentSignoffStatus,
   initialAgentSignoffByName,
   initialAgentSignoffAt,
   initialAgentSignoffText,
+  initialGmApprovedAt,
+  initialGmHeldAt,
+  initialGmHoldReason,
 }: Props) {
   const router = useRouter();
 
@@ -74,11 +85,21 @@ export function SettleCtaBar({
     initialAgentSignoffText,
   );
 
+  const [gmApprovedAt, setGmApprovedAt] = useState<string | null>(
+    initialGmApprovedAt,
+  );
+  const [gmHeldAt, setGmHeldAt] = useState<string | null>(initialGmHeldAt);
+  const [gmHoldReason, setGmHoldReason] = useState<string | null>(
+    initialGmHoldReason,
+  );
+
   // Panel state
   const [pmPanelOpen, setPmPanelOpen] = useState(false);
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [gmPanelOpen, setGmPanelOpen] = useState(false);
   const [pmCopied, setPmCopied] = useState(false);
   const [agentCopied, setAgentCopied] = useState(false);
+  const [gmCopied, setGmCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,6 +131,9 @@ export function SettleCtaBar({
         setAgentSignoffByName(data.agentSignoffByName);
         setAgentSignoffAt(data.agentSignoffAt);
         setAgentSignoffText(data.agentSignoffText);
+        setGmApprovedAt(data.gmApprovedAt ?? null);
+        setGmHeldAt(data.gmHeldAt ?? null);
+        setGmHoldReason(data.gmHoldReason ?? null);
       } catch {
         // Best-effort polling.
       }
@@ -162,6 +186,10 @@ export function SettleCtaBar({
   const canSendAgent = expensesConfirmedAt != null;
   const agentResponded =
     agentSignoffStatus === "agreed" || agentSignoffStatus === "questions";
+  const agentAcknowledged = agentSignoffStatus === "agreed";
+  const canSendGm = agentAcknowledged && gmApprovalUrl != null;
+  const gmApproved = gmApprovedAt != null;
+  const gmHeld = gmHeldAt != null;
 
   return (
     <section className="rounded-lg border border-ink-200 bg-white overflow-hidden">
@@ -170,13 +198,19 @@ export function SettleCtaBar({
           Next steps
         </div>
         <div className="text-[14px] text-ink-900 font-medium mt-0.5">
-          {agentResponded
-            ? `Agent responded · ${agentSignoffStatus === "agreed" ? "settlement finalized" : "settlement disputed"}`
-            : canSendAgent
-              ? "Send the preview to the agent for sign-off"
-              : canConfirm
-                ? "Cross-check the PM's submission, then confirm"
-                : "Share the PM link to start collecting receipts"}
+          {gmApproved
+            ? "Paid · wire scheduled"
+            : gmHeld
+              ? "Wire on hold by GM"
+              : canSendGm
+                ? "Send to GM for wire approval"
+                : agentResponded && !agentAcknowledged
+                  ? "Settlement disputed · address before next step"
+                  : canSendAgent
+                    ? "Send the preview to the agent for sign-off"
+                    : canConfirm
+                      ? "Cross-check the PM's submission, then confirm"
+                      : "Share the PM link to start collecting receipts"}
         </div>
       </header>
 
@@ -327,7 +361,7 @@ export function SettleCtaBar({
       {agentResponded && (
         <div
           className={cn(
-            "px-5 py-3 flex items-start gap-3",
+            "px-5 py-3 flex items-start gap-3 border-b border-ink-100",
             agentSignoffStatus === "agreed"
               ? "bg-brand-50/60"
               : "bg-amber-50/60",
@@ -365,6 +399,97 @@ export function SettleCtaBar({
           </div>
         </div>
       )}
+
+      {/* CTA row 4 — GM wire approval (gated on agent acknowledgement) */}
+      {(agentAcknowledged || gmApproved || gmHeld) && (
+        <div className="px-5 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-[12px] text-ink-600 flex items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex size-5 rounded-full items-center justify-center text-[11px] font-medium",
+                gmApproved
+                  ? "bg-brand-100 text-brand-800"
+                  : canSendGm
+                    ? "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200"
+                    : "bg-ink-100 text-ink-500",
+              )}
+            >
+              {gmApproved ? <Check className="size-3" /> : "4"}
+            </span>
+            <span>
+              {gmApproved
+                ? "GM approved · wire scheduled"
+                : gmHeld
+                  ? "GM placed wire on hold"
+                  : "Send to GM for wire approval"}
+            </span>
+          </div>
+          <Button
+            variant={
+              canSendGm && !gmPanelOpen && !gmApproved ? "brand" : "secondary"
+            }
+            disabled={!canSendGm || gmApprovalUrl == null || gmApproved}
+            onClick={() => setGmPanelOpen((v) => !v)}
+            className="gap-1.5"
+          >
+            <ShieldCheck className="size-3.5" />
+            {gmApproved
+              ? "Approved"
+              : gmPanelOpen
+                ? "Hide GM link"
+                : "Send to GM for wire approval"}
+          </Button>
+        </div>
+      )}
+      {gmPanelOpen && gmApprovalUrl && !gmApproved && (
+        <ShareLinkPanel
+          url={gmApprovalUrl}
+          copied={gmCopied}
+          onCopy={() => copyTo(gmApprovalUrl, setGmCopied)}
+          onClose={() => setGmPanelOpen(false)}
+          eyebrow="GM wire approval"
+          helpText="Text this to the GM. They'll see the totals + approval context and click Approve to release the wire."
+          tone="gm"
+        />
+      )}
+
+      {gmHeld && gmHoldReason && (
+        <div className="px-5 py-3 flex items-start gap-3 bg-amber-50/60 border-b border-ink-100">
+          <HelpCircle className="size-4 text-amber-700 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <div className="text-[12.5px] font-medium text-amber-900">
+              GM placed wire on hold
+              {gmHeldAt && (
+                <span className="text-ink-500 font-normal ml-1">
+                  · {formatTime(gmHeldAt)}
+                </span>
+              )}
+            </div>
+            <div className="text-[11.5px] text-ink-700 mt-1 italic">
+              “{gmHoldReason}”
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gmApproved && (
+        <div className="px-5 py-3 flex items-start gap-3 bg-brand-50/60">
+          <Check className="size-4 text-brand-700 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <div className="text-[12.5px] font-medium text-brand-900">
+              Paid · approved by Marcus Chen, GM, The Crescent
+              {gmApprovedAt && (
+                <span className="text-ink-500 font-normal ml-1">
+                  · {formatTime(gmApprovedAt)}
+                </span>
+              )}
+            </div>
+            <div className="text-[11.5px] text-brand-700/80 mt-0.5">
+              Wire scheduled for release
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -391,7 +516,7 @@ function ShareLinkPanel({
   onClose: () => void;
   eyebrow: string;
   helpText: string;
-  tone?: "pm" | "agent";
+  tone?: "pm" | "agent" | "gm";
 }) {
   const fullUrl =
     typeof window !== "undefined" ? `${window.location.origin}${url}` : url;
@@ -405,7 +530,9 @@ function ShareLinkPanel({
         "border-b px-5 py-4 flex items-center gap-5 flex-wrap",
         tone === "agent"
           ? "border-sky-100 bg-sky-50/40"
-          : "border-brand-100 bg-brand-50/40",
+          : tone === "gm"
+            ? "border-emerald-100 bg-emerald-50/40"
+            : "border-brand-100 bg-brand-50/40",
       )}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -416,14 +543,22 @@ function ShareLinkPanel({
         height={96}
         className={cn(
           "rounded border bg-white shrink-0",
-          tone === "agent" ? "border-sky-200" : "border-brand-200",
+          tone === "agent"
+            ? "border-sky-200"
+            : tone === "gm"
+              ? "border-emerald-200"
+              : "border-brand-200",
         )}
       />
       <div className="flex-1 min-w-0 space-y-1.5">
         <div
           className={cn(
             "text-[11px] uppercase tracking-wider font-medium",
-            tone === "agent" ? "text-sky-800" : "text-brand-800",
+            tone === "agent"
+              ? "text-sky-800"
+              : tone === "gm"
+                ? "text-emerald-800"
+                : "text-brand-800",
           )}
         >
           {eyebrow}

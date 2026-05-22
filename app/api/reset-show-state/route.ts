@@ -45,6 +45,7 @@ type PostDealEventType =
   | "ticket_milestone"
   | "comp_logged"
   | "gm_approved"
+  | "gm_held"
   | "wire_sent"
   | "settlement_paid";
 
@@ -65,6 +66,7 @@ const POST_DEAL_EVENT_TYPES: PostDealEventType[] = [
   "ticket_milestone",
   "comp_logged",
   "gm_approved",
+  "gm_held",
   "wire_sent",
   "settlement_paid",
 ];
@@ -118,6 +120,17 @@ export async function POST(req: NextRequest) {
         eq(shareLinks.resourceType, "settlement"),
         // Settlement IDs are stl_<showId>, so any old settlement-share row
         // would have that resourceId. Defensive cleanup.
+        eq(shareLinks.resourceId, `stl_${showId}`),
+      ),
+    );
+
+  // Wipe gm_approval share links entirely — those are scoped to a single
+  // wire-release cycle so a re-run shouldn't reuse them.
+  await db
+    .delete(shareLinks)
+    .where(
+      and(
+        eq(shareLinks.resourceType, "gm_approval"),
         eq(shareLinks.resourceId, `stl_${showId}`),
       ),
     );

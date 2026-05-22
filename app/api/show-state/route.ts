@@ -49,5 +49,8 @@ export async function GET(req: NextRequest) {
     agentSignoffByName: link?.signoffByName ?? null,
     agentSignoffAt: link?.signoffAt?.toISOString() ?? null,
     agentSignoffText: link?.signoffText ?? null,
+    gmApprovedAt: settlement?.gmApprovedAt?.toISOString() ?? null,
+    gmHeldAt: settlement?.gmHeldAt?.toISOString() ?? null,
+    gmHoldReason: settlement?.gmHoldReason ?? null,
   });
 }

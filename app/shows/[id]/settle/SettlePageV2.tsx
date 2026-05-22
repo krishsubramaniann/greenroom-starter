@@ -155,6 +155,35 @@ async function ensurePmExpenseShareLink(showId: string): Promise<string> {
   return token;
 }
 
+/** Lazy-create the gm_approval share_link the GM mobile page resolves
+ *  against. Anchored on the settlement (not the show) — each settlement
+ *  gets its own wire-release token. */
+async function ensureGmApprovalShareLink(
+  settlementId: string,
+): Promise<string> {
+  const existing = await db
+    .select()
+    .from(shareLinksTable)
+    .where(
+      and(
+        eq(shareLinksTable.resourceType, "gm_approval"),
+        eq(shareLinksTable.resourceId, settlementId),
+      ),
+    )
+    .orderBy(desc(shareLinksTable.createdAt))
+    .limit(1);
+  if (existing[0]) return existing[0].id;
+  const token = `gm-${randomUUID().slice(0, 12)}`;
+  await db.insert(shareLinksTable).values({
+    id: token,
+    resourceType: "gm_approval",
+    resourceId: settlementId,
+    createdAt: new Date(),
+    signoffStatus: "open",
+  });
+  return token;
+}
+
 type Props = {
   data: ShowWithRelations;
   searchParams: { walkthrough?: string };
@@ -199,6 +228,13 @@ export async function SettlePageV2({ data, searchParams }: Props) {
 
   const pmExpenseToken = await ensurePmExpenseShareLink(show.id);
   const pmExpenseUrl = `/m/expense?token=${pmExpenseToken}`;
+
+  // GM approval link — lazy-create when a settlement exists. The CTA is
+  // gated on agent acknowledgement client-side, but having the URL ready
+  // means clicking [Send to GM] never blocks on a fresh round-trip.
+  const gmApprovalUrl = settlement
+    ? `/m/gm-approve/${await ensureGmApprovalShareLink(settlement.id)}`
+    : null;
 
   const initialExpenses: DetailsExpense[] = expenses.map((e) => ({
     id: e.id,
@@ -346,6 +382,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                 showId={show.id}
                 pmExpenseUrl={pmExpenseUrl}
                 agentShareUrl={shareUrl}
+                gmApprovalUrl={gmApprovalUrl}
                 initialPmExpensesFinalizedAt={
                   show.pmExpensesFinalizedAt?.toISOString() ?? null
                 }
@@ -358,6 +395,13 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                   signoff?.at ? signoff.at.toISOString() : null
                 }
                 initialAgentSignoffText={signoff?.text ?? null}
+                initialGmApprovedAt={
+                  settlement?.gmApprovedAt?.toISOString() ?? null
+                }
+                initialGmHeldAt={
+                  settlement?.gmHeldAt?.toISOString() ?? null
+                }
+                initialGmHoldReason={settlement?.gmHoldReason ?? null}
               />
 
               <SettlementDetails
@@ -389,6 +433,28 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                     {unresolved.map((a) => (
                       <AmbiguityCard key={a.id} ambiguity={a} showId={show.id} />
                     ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Paid confirmation — surfaces once the GM has approved */}
+              {settlement?.gmApprovedAt && (
+                <Card accent="brand">
+                  <CardContent className="px-4 py-3">
+                    <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-brand-700 font-medium">
+                      Wire approval
+                    </div>
+                    <div className="text-[13px] text-brand-900 font-medium mt-1">
+                      Paid · approved by Marcus Chen, GM, The Crescent
+                    </div>
+                    <div className="text-[11px] text-brand-700/80 mt-0.5">
+                      {new Date(settlement.gmApprovedAt).toLocaleString([], {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </div>
                   </CardContent>
                 </Card>
               )}

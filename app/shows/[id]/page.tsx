@@ -189,7 +189,17 @@ export default async function ShowDetailPage({
                   thread with the agent.
                 </CardDescription>
               </div>
-              {deal && <DealTypeBadge type={deal.dealType} />}
+              <div className="flex items-center gap-3 shrink-0">
+                {deal && <DealTypeBadge type={deal.dealType} />}
+                {deal && (
+                  <Link
+                    href={`/shows/${show.id}/deal/capture`}
+                    className="text-[11px] text-ink-500 hover:text-ink-800 underline underline-offset-2"
+                  >
+                    Recapture deal
+                  </Link>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-5">
               {deal ? (
