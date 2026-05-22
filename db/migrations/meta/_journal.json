@@ -36,6 +36,13 @@
       "when": 1779460419695,
       "tag": "0004_gm_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1779465440701,
+      "tag": "0005_receipt_path",
+      "breakpoints": true
     }
   ]
 }

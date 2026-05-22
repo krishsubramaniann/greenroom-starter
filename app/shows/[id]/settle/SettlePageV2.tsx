@@ -49,17 +49,15 @@ import {
 } from "@/components/ui/card";
 import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
 
-import {
-  LifecycleBar,
-  deriveLifecycleState,
-} from "@/components/settlement/LifecycleBar";
+import { deriveLifecycleState } from "@/components/settlement/LifecycleBar";
+import { LifecycleBarPoll } from "./LifecycleBarPoll";
 import { BranchSummary } from "@/components/settlement/BranchSummary";
 import { AmbiguityCard } from "@/components/settlement/AmbiguityCard";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 
 import { SettleCtaBar } from "./SettleCtaBar";
 import { SettlementDetails, type DetailsExpense } from "./SettlementDetails";
-import { CollapsibleActivityCard } from "./CollapsibleActivityCard";
+import { ActivityPollCard } from "./ActivityPollCard";
 
 const DEAL_TYPE_LABELS: Record<Deal["dealType"], string> = {
   flat: "Flat guarantee",
@@ -246,6 +244,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     source: (e.source ?? "manual") as "manual" | "pm_mobile",
     enteredAt: e.enteredAt.toISOString(),
     enteredByUserId: e.enteredByUserId,
+    receiptPath: e.receiptPath ?? null,
   }));
 
   // Sidebar: signoff link state + trace-line comments (legacy from Phase 5).
@@ -306,14 +305,24 @@ export async function SettlePageV2({ data, searchParams }: Props) {
   // gone), but we keep the table for backward compatibility — `like` query
   // pulled only if needed.
 
-  const lifecycleState = deriveLifecycleState({
+  // Server-render seed for the LifecycleBarPoll client component. It
+  // re-derives client-side on every /api/show-state tick so stages 5-7
+  // can update without a page refresh.
+  const lifecycleInput = {
     hasDeal: true,
-    dealConfirmedAt: deal.confirmedAt ?? null,
-    dealShareAccessedAt: dealShareLink?.accessedAt ?? null,
-    expensesConfirmedAt: settlement?.expensesConfirmedAt ?? null,
+    dealConfirmedAt: deal.confirmedAt?.toISOString() ?? null,
+    dealShareAccessedAt: dealShareLink?.accessedAt?.toISOString() ?? null,
+    expensesConfirmedAt:
+      settlement?.expensesConfirmedAt?.toISOString() ?? null,
     settlementStatus: settlement?.status ?? null,
-    paidAt: settlement?.paidAt ?? null,
-  });
+    paidAt: settlement?.paidAt?.toISOString() ?? null,
+    gmApprovedAt: settlement?.gmApprovedAt?.toISOString() ?? null,
+    gmHeldAt: settlement?.gmHeldAt?.toISOString() ?? null,
+    gmHoldReason: settlement?.gmHoldReason ?? null,
+  };
+  // Silence unused-import warning — derive helper is re-exported via
+  // LifecycleBarPoll, kept available here for downstream callers.
+  void deriveLifecycleState;
 
   return (
     <div className="px-12 py-10 pb-24 max-w-7xl mx-auto">
@@ -343,7 +352,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
       {/* Lifecycle */}
       <Card className="mb-6">
         <CardContent className="px-5 py-4">
-          <LifecycleBar state={lifecycleState} />
+          <LifecycleBarPoll showId={show.id} initial={lifecycleInput} />
         </CardContent>
       </Card>
 
@@ -543,7 +552,11 @@ export async function SettlePageV2({ data, searchParams }: Props) {
               </Card>
 
               {/* Recent activity (collapsible) */}
-              <CollapsibleActivityCard events={recentActivity} viewAllHref={`/shows/${show.id}`} />
+              <ActivityPollCard
+                showId={show.id}
+                initialEvents={recentActivity}
+                viewAllHref={`/shows/${show.id}`}
+              />
             </div>
           </div>
         </>

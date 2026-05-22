@@ -107,14 +107,23 @@ export async function POST(req: NextRequest) {
   const now = new Date();
   const expenseId = `exp_${randomUUID()}`;
 
-  // Compose a description blending vendor + optional notes + receipt marker.
-  // The vendor/notes don't have native columns on the expense schema — they're
-  // user-facing context — so we concatenate them into the description.
+  // Compose description from vendor + optional notes. The receipt path
+  // (set below) is stored on its own column — no more "📷 sound.png" tail
+  // glued onto the description; that hack is dead post-Phase-8.5.
   const descriptionParts: string[] = [];
   descriptionParts.push(vendor.trim());
   if (notes?.trim()) descriptionParts.push(notes.trim());
-  if (receiptFilename) descriptionParts.push(`📷 ${receiptFilename}`);
   const description = descriptionParts.join(" · ");
+
+  // Demo: ignore the uploaded filename and assign a canned receipt by
+  // category. Unmapped categories fall back to the production receipt.
+  const CATEGORY_RECEIPT: Record<string, string> = {
+    sound: "/receipts/sound.svg",
+    hospitality: "/receipts/hospitality.svg",
+    security: "/receipts/security.svg",
+    production: "/receipts/production.svg",
+  };
+  const receiptPath = CATEGORY_RECEIPT[category] ?? "/receipts/production.svg";
 
   await db.insert(expenses).values({
     id: expenseId,
@@ -135,6 +144,7 @@ export async function POST(req: NextRequest) {
     enteredByUserId: null,
     enteredAt: now,
     source: "pm_mobile",
+    receiptPath,
   });
 
   // First-touch on the token: stamp accessedAt so Mariana can see "PM

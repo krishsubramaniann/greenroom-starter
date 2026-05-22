@@ -1,0 +1,1 @@
+ALTER TABLE `expenses` ADD `receipt_path` text;

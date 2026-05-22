@@ -235,6 +235,13 @@ export const expenses = sqliteTable("expenses", {
    * pre-Phase-7 rows.
    */
   source: text("source", { enum: ["manual", "pm_mobile"] }),
+  /**
+   * Public path to the receipt artifact (e.g., "/receipts/sound.svg").
+   * For Phase 8.5 demo this is assigned by /api/log-expense based on
+   * category — actual file uploads are out of scope. Renders as the
+   * [View receipt] affordance in SettlementDetails Section B.
+   */
+  receiptPath: text("receipt_path"),
 });
 
 // -------- Settlements --------

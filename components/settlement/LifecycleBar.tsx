@@ -27,7 +27,11 @@ export type LifecycleState = {
   /** Either "Finalized" (complete) or "Disputed" (warning). Determines both
    *  the label and the tone of the 6th stop. */
   outcome: { label: "Finalized" | "Disputed"; state: StageState };
-  paid: StageState;
+  /** Stage 7 flips between "Paid" (green) and "On hold" (amber). A GM
+   *  hold ≠ a payment, so the dot can't stay green just because we're
+   *  past the agent-ack milestone. Optional reason surfaces below the
+   *  label when state="warning". */
+  paid: { label: "Paid" | "On hold"; state: StageState; reason?: string };
 };
 
 const STOPS = [
@@ -64,17 +68,24 @@ export function LifecycleBar({ state }: Props) {
       {STOPS.map((stop, idx) => {
         let ss: StageState;
         let label: string;
-        let isOutcomeWarning = false;
+        let isWarning = false;
+        let reason: string | undefined;
         if (stop.key === "outcome") {
           ss = state.outcome.state;
           label = state.outcome.label;
-          isOutcomeWarning =
+          isWarning =
             state.outcome.label === "Disputed" && state.outcome.state !== "pending";
+        } else if (stop.key === "paid") {
+          ss = state.paid.state;
+          label = state.paid.label;
+          isWarning =
+            state.paid.label === "On hold" && state.paid.state !== "pending";
+          reason = state.paid.reason;
         } else {
           ss = state[stop.key];
           label = stop.label as string;
         }
-        const { dot, text } = classesFor(ss, isOutcomeWarning);
+        const { dot, text } = classesFor(ss, isWarning);
 
         // The connector line lights up only when both adjacent stops are
         // complete (signals continuous lineage).
@@ -82,6 +93,7 @@ export function LifecycleBar({ state }: Props) {
         let nextSs: StageState = "pending";
         if (next) {
           if (next.key === "outcome") nextSs = state.outcome.state;
+          else if (next.key === "paid") nextSs = state.paid.state;
           else nextSs = state[next.key];
         }
         const connectorComplete =
@@ -102,6 +114,14 @@ export function LifecycleBar({ state }: Props) {
               >
                 {label}
               </span>
+              {reason && (
+                <span
+                  className="text-[9.5px] text-amber-700/80 mt-0.5 max-w-[120px] truncate"
+                  title={reason}
+                >
+                  “{reason}”
+                </span>
+              )}
             </div>
             {next && (
               <div
@@ -139,6 +159,9 @@ export function deriveLifecycleState(input: {
     | "voided"
     | null;
   paidAt: Date | null;
+  gmApprovedAt?: Date | null;
+  gmHeldAt?: Date | null;
+  gmHoldReason?: string | null;
 }): LifecycleState {
   const {
     hasDeal,
@@ -147,6 +170,9 @@ export function deriveLifecycleState(input: {
     expensesConfirmedAt,
     settlementStatus,
     paidAt,
+    gmApprovedAt,
+    gmHeldAt,
+    gmHoldReason,
   } = input;
 
   const dealDraft: StageState = hasDeal ? "complete" : "pending";
@@ -179,11 +205,23 @@ export function deriveLifecycleState(input: {
     outcome = { label: "Finalized", state: "pending" };
   }
 
-  const paid: StageState = paidAt
-    ? "complete"
-    : settlementStatus === "finalized"
-      ? "active"
-      : "pending";
+  // Stage 7 — Paid / On hold / pending. GM approval wins over hold so the
+  // approve-after-hold path correctly green-lights this stop. A standalone
+  // hold (no approve) holds amber. Nothing decided yet stays grey.
+  let paid: LifecycleState["paid"];
+  if (gmApprovedAt || paidAt) {
+    paid = { label: "Paid", state: "complete" };
+  } else if (gmHeldAt) {
+    paid = {
+      label: "On hold",
+      state: "warning",
+      reason: gmHoldReason ?? undefined,
+    };
+  } else if (settlementStatus === "finalized") {
+    paid = { label: "Paid", state: "active" };
+  } else {
+    paid = { label: "Paid", state: "pending" };
+  }
 
   return {
     dealDraft,

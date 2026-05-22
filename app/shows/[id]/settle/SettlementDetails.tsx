@@ -20,15 +20,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Camera,
+  Paperclip,
   Receipt,
   Smartphone,
   Ticket,
-  Users,
   Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
+import { ReceiptModal, type ReceiptModalData } from "./ReceiptModal";
 import {
   calculateSettlementV2,
   type SettlementResultV2,
@@ -45,6 +45,9 @@ export type DetailsExpense = {
   source: "manual" | "pm_mobile" | null;
   enteredAt: string;
   enteredByUserId: string | null;
+  /** Public path to the receipt artifact, e.g. "/receipts/sound.svg".
+   *  Null for legacy rows with no associated receipt. */
+  receiptPath: string | null;
 };
 
 type Props = {
@@ -85,6 +88,7 @@ function expenseToDbShape(e: DetailsExpense): Expense {
     enteredByUserId: e.enteredByUserId,
     enteredAt: new Date(e.enteredAt),
     source: e.source,
+    receiptPath: e.receiptPath,
   } as Expense;
 }
 
@@ -99,6 +103,7 @@ export function SettlementDetails({
 }: Props) {
   const [expenses, setExpenses] = useState<DetailsExpense[]>(initialExpenses);
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const [openReceipt, setOpenReceipt] = useState<ReceiptModalData | null>(null);
 
   const latestAtRef = useRef<string>(
     initialExpenses.length > 0
@@ -304,7 +309,10 @@ export function SettlementDetails({
           {expenses.map((e) => {
             const fresh = freshIds.has(e.id);
             const fromPm = e.source === "pm_mobile";
-            const hasReceipt = e.description?.includes("📷") ?? false;
+            const vendor =
+              e.description?.split(" · ")[0] ??
+              CATEGORY_LABELS[e.category] ??
+              e.category;
             return (
               <li
                 key={e.id}
@@ -324,11 +332,28 @@ export function SettlementDetails({
                       <span className="text-[12.5px] font-medium text-ink-900">
                         {CATEGORY_LABELS[e.category] ?? e.category}
                       </span>
-                      {hasReceipt && (
-                        <Camera
-                          className="size-3 text-ink-500"
-                          aria-label="receipt attached"
-                        />
+                      {e.receiptPath && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenReceipt({
+                              receiptPath: e.receiptPath!,
+                              vendor,
+                              amount: e.amount,
+                              category: e.category,
+                              submittedBy:
+                                e.source === "pm_mobile"
+                                  ? "Production manager"
+                                  : "Booker",
+                              submittedAt: e.enteredAt,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 text-[10.5px] font-medium text-ink-500 hover:text-ink-800 underline underline-offset-2"
+                          aria-label="View receipt"
+                        >
+                          <Paperclip className="size-2.5" />
+                          View receipt
+                        </button>
                       )}
                       {fresh && fromPm ? (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-100 text-brand-800 ring-1 ring-inset ring-brand-200">
@@ -354,28 +379,55 @@ export function SettlementDetails({
               </li>
             );
           })}
-          {insideCapRecoups.map((r) => (
-            <li
-              key={r.id}
-              className="list-none px-5 py-2.5 border-b border-ink-100"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[12.5px] font-medium text-ink-900">
-                      {r.label}
-                    </span>
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200/60">
-                      deal term · in-cap
-                    </span>
+          {insideCapRecoups.map((r) => {
+            // Map deal-term recoups to a canned receipt by category. Marketing
+            // recoups get the Spotify-style invoice; others fall back to the
+            // production receipt rather than rendering nothing.
+            const recoupReceipt =
+              r.category === "marketing"
+                ? "/receipts/marketing.svg"
+                : "/receipts/production.svg";
+            return (
+              <li
+                key={r.id}
+                className="list-none px-5 py-2.5 border-b border-ink-100"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[12.5px] font-medium text-ink-900">
+                        {r.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenReceipt({
+                            receiptPath: recoupReceipt,
+                            vendor: r.label,
+                            amount: r.amount,
+                            category: r.category,
+                            submittedBy: "Deal term",
+                            submittedAt: new Date().toISOString(),
+                          })
+                        }
+                        className="inline-flex items-center gap-1 text-[10.5px] font-medium text-ink-500 hover:text-ink-800 underline underline-offset-2"
+                        aria-label="View receipt"
+                      >
+                        <Paperclip className="size-2.5" />
+                        View receipt
+                      </button>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200/60">
+                        deal term · in-cap
+                      </span>
+                    </div>
+                  </div>
+                  <div className="font-mono tabular text-[13.5px] text-ink-900 shrink-0">
+                    {formatMoney(r.amount)}
                   </div>
                 </div>
-                <div className="font-mono tabular text-[13.5px] text-ink-900 shrink-0">
-                  {formatMoney(r.amount)}
-                </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </>
       )}
       <div className="px-5 py-2.5 border-b border-ink-100">
@@ -423,6 +475,7 @@ export function SettlementDetails({
           100% { background-color: transparent; }
         }
       `}</style>
+      <ReceiptModal data={openReceipt} onClose={() => setOpenReceipt(null)} />
     </section>
   );
 }

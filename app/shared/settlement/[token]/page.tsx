@@ -53,6 +53,7 @@ export default async function SettlementSharePage({
     source: (e.source ?? "manual") as "manual" | "pm_mobile",
     enteredAt: e.enteredAt.toISOString(),
     enteredByUserId: e.enteredByUserId,
+    receiptPath: e.receiptPath ?? null,
   }));
 
   // First-touch: stamp accessedAt + write agent_opened

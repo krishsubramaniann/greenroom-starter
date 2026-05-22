@@ -52,5 +52,6 @@ export async function GET(req: NextRequest) {
     gmApprovedAt: settlement?.gmApprovedAt?.toISOString() ?? null,
     gmHeldAt: settlement?.gmHeldAt?.toISOString() ?? null,
     gmHoldReason: settlement?.gmHoldReason ?? null,
+    paidAt: settlement?.paidAt?.toISOString() ?? null,
   });
 }

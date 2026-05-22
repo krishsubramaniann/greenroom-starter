@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 560" width="400" height="560" font-family="monospace">
+  <rect width="400" height="560" fill="#ffffff"/>
+  <rect x="20" y="20" width="360" height="520" fill="#fafaf7" stroke="#1f2937" stroke-width="1"/>
+  <text x="200" y="60" font-family="Georgia, serif" font-size="22" font-weight="700" fill="#111827" text-anchor="middle">BLUE BIRD GROCERY</text>
+  <text x="200" y="82" font-size="11" fill="#6b7280" text-anchor="middle">2418 8th Ave S · Nashville TN 37204</text>
+  <text x="200" y="98" font-size="11" fill="#6b7280" text-anchor="middle">Catering · prepared foods · beverages</text>
+  <line x1="40" y1="120" x2="360" y2="120" stroke="#1f2937" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="40" y="148" font-size="12" fill="#111827">RECEIPT</text>
+  <text x="360" y="148" font-size="12" fill="#111827" text-anchor="end">#BB-77241</text>
+  <text x="40" y="166" font-size="11" fill="#6b7280">Date</text>
+  <text x="360" y="166" font-size="11" fill="#111827" text-anchor="end">Jun 19, 2026 · 4:18p</text>
+  <text x="40" y="184" font-size="11" fill="#6b7280">For</text>
+  <text x="360" y="184" font-size="11" fill="#111827" text-anchor="end">Greenroom hospitality</text>
+  <line x1="40" y1="208" x2="360" y2="208" stroke="#1f2937" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="40" y="234" font-size="11.5" fill="#111827">Veg crudités tray</text>
+  <text x="360" y="234" font-size="11.5" fill="#111827" text-anchor="end">$  85.00</text>
+  <text x="40" y="252" font-size="11.5" fill="#111827">Sandwich platter (6)</text>
+  <text x="360" y="252" font-size="11.5" fill="#111827" text-anchor="end">$  72.00</text>
+  <text x="40" y="270" font-size="11.5" fill="#111827">Fruit + cheese board</text>
+  <text x="360" y="270" font-size="11.5" fill="#111827" text-anchor="end">$  64.00</text>
+  <text x="40" y="288" font-size="11.5" fill="#111827">Sparkling water · 18ct</text>
+  <text x="360" y="288" font-size="11.5" fill="#111827" text-anchor="end">$  36.00</text>
+  <text x="40" y="306" font-size="11.5" fill="#111827">Local beer · half-keg</text>
+  <text x="360" y="306" font-size="11.5" fill="#111827" text-anchor="end">$ 110.00</text>
+  <text x="40" y="324" font-size="11.5" fill="#6b7280">Subtotal</text>
+  <text x="360" y="324" font-size="11.5" fill="#6b7280" text-anchor="end">$ 367.00</text>
+  <text x="40" y="342" font-size="11.5" fill="#6b7280">TN sales tax (9.25%)</text>
+  <text x="360" y="342" font-size="11.5" fill="#6b7280" text-anchor="end">$  33.00</text>
+  <line x1="40" y1="364" x2="360" y2="364" stroke="#1f2937" stroke-width="1"/>
+  <text x="40" y="388" font-size="13" font-weight="700" fill="#111827">TOTAL</text>
+  <text x="360" y="388" font-size="14" font-weight="700" fill="#111827" text-anchor="end">$ 400.00</text>
+  <line x1="40" y1="410" x2="360" y2="410" stroke="#1f2937" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="40" y="434" font-size="11" fill="#6b7280">Paid · Visa **3271</text>
+  <text x="360" y="434" font-size="11" fill="#111827" text-anchor="end">APPROVED 4:18p</text>
+  <text x="200" y="500" font-size="10" fill="#9ca3af" text-anchor="middle">Have a good show — Blue Bird</text>
+  <text x="200" y="518" font-size="9" fill="#d1d5db" text-anchor="middle">CRES · 2026-06-19 · BB-77241</text>
+</svg>

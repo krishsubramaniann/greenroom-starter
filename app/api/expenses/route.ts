@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
       source: e.source ?? "manual",
       enteredAt: e.enteredAt.toISOString(),
       enteredByUserId: e.enteredByUserId,
+      receiptPath: e.receiptPath ?? null,
     })),
     serverTime: new Date().toISOString(),
   });
