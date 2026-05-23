@@ -52,7 +52,15 @@ type Props = {
   netExpense: number;
   /** Locked adjustment, or null. */
   adjustment: AdjustmentDetails | null;
-  variant: "live" | "readonly";
+  /**
+   * - "live"     — settle page: polling pill, "just now" flash highlight,
+   *                receipt links, full row attribution, editor slot.
+   * - "summary"  — show detail page: clean rollup. No PM/cap badges, no
+   *                vendor descriptions, no receipt links, no adjustment
+   *                description/attribution. Just categories + amounts +
+   *                subtotals + cap logic.
+   */
+  variant: "live" | "summary";
   /** Optional ReactNode slot for the editor form (settle page only).
    *  Rendered in place of the locked adjustment row when provided. */
   editorSlot?: React.ReactNode;
@@ -130,15 +138,24 @@ export function ExpensesBreakdown({
               e.description?.split(" · ")[0] ??
               CATEGORY_LABELS[e.category] ??
               e.category;
+            // Phase 8.9.4 — in summary mode, an "other" category with a
+            // backline-ish description renders cleanly as "Backline" so
+            // the rollup reads like a real category list.
+            const summaryLabel =
+              e.category === "other" &&
+              e.description &&
+              /backline/i.test(e.description)
+                ? "Backline"
+                : CATEGORY_LABELS[e.category] ?? e.category;
             return (
               <li
                 key={e.id}
                 className={cn(
                   "list-none px-5 py-2.5 border-b border-ink-100 transition-colors",
-                  fresh && fromPm && "bg-brand-50",
+                  live && fresh && fromPm && "bg-brand-50",
                 )}
                 style={
-                  fresh && fromPm
+                  live && fresh && fromPm
                     ? { animation: "flash-bg 1.5s ease-out 1" }
                     : undefined
                 }
@@ -147,7 +164,9 @@ export function ExpensesBreakdown({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[12.5px] font-medium text-ink-900">
-                        {CATEGORY_LABELS[e.category] ?? e.category}
+                        {live
+                          ? CATEGORY_LABELS[e.category] ?? e.category
+                          : summaryLabel}
                       </span>
                       {canOpenReceipts && e.receiptPath && (
                         <button
@@ -172,18 +191,24 @@ export function ExpensesBreakdown({
                           View receipt
                         </button>
                       )}
-                      {fresh && fromPm ? (
+                      {live && fresh && fromPm ? (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-100 text-brand-800 ring-1 ring-inset ring-brand-200">
                           just now · from production manager
                         </span>
-                      ) : fromPm ? (
+                      ) : live && fromPm ? (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200/60">
                           PM
                         </span>
                       ) : null}
-                      <CapPill amount={e.amount} deal={deal} category={e.category} />
+                      {live && (
+                        <CapPill
+                          amount={e.amount}
+                          deal={deal}
+                          category={e.category}
+                        />
+                      )}
                     </div>
-                    {e.description && (
+                    {live && e.description && (
                       <div className="text-[11.5px] text-ink-600 mt-0.5 truncate">
                         {e.description}
                       </div>
@@ -232,9 +257,11 @@ export function ExpensesBreakdown({
                           View receipt
                         </button>
                       )}
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200/60">
-                        deal term · in-cap
-                      </span>
+                      {live && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200/60">
+                          deal term · in-cap
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="font-mono tabular text-[13.5px] text-ink-900 shrink-0">
@@ -259,7 +286,7 @@ export function ExpensesBreakdown({
            show detail page passes neither, so during the dispute
            window (before save) nothing renders here. */}
       {editorSlot ?? null}
-      {adjustmentExists && !editorSlot && (
+      {adjustmentExists && !editorSlot && live && (
         <div className="px-5 py-3 border-b border-ink-100 bg-amber-50/30">
           <div className="flex items-center justify-between gap-2">
             <div className="flex-1 min-w-0">
@@ -290,6 +317,21 @@ export function ExpensesBreakdown({
               {formatMoney(adjustment!.amount)}
             </div>
           </div>
+        </div>
+      )}
+      {/* Summary variant: just label + signed amount, no attribution. */}
+      {adjustmentExists && !editorSlot && !live && (
+        <div className="px-5 py-2.5 border-b border-ink-100 flex items-center justify-between gap-2">
+          <span className="text-[12.5px] text-ink-900">Other adjustments</span>
+          <span
+            className={cn(
+              "font-mono tabular text-[13.5px] shrink-0",
+              adjustment!.amount < 0 ? "text-rose-700" : "text-emerald-700",
+            )}
+          >
+            {adjustment!.amount > 0 ? "+" : ""}
+            {formatMoney(adjustment!.amount)}
+          </span>
         </div>
       )}
 

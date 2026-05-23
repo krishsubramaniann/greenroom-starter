@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq, asc } from "drizzle-orm";
 import {
   ArrowLeft,
   AlertCircle,
@@ -8,10 +7,7 @@ import {
   Clock,
   TrendingUp,
 } from "lucide-react";
-import { db } from "@/db";
-import { activityEvents } from "@/db/schema";
 import { getShowById } from "@/lib/queries";
-import { ActivityLog } from "@/components/activity/ActivityLog";
 import { ShowActionBar } from "./ShowActionBar";
 import {
   Card,
@@ -156,13 +152,6 @@ export default async function ShowDetailPage({
           savedBy: settlement.adjustmentSavedBy ?? "Booker",
         }
       : null;
-
-  // Activity log for the show — full timeline, chronological.
-  const activity = await db
-    .select()
-    .from(activityEvents)
-    .where(eq(activityEvents.showId, show.id))
-    .orderBy(asc(activityEvents.occurredAt));
 
   const totalCompCount = comps.reduce((s, c) => s + c.count, 0);
   const compsCountingTowardGross = comps
@@ -611,7 +600,7 @@ export default async function ShowDetailPage({
             </CardHeader>
             {deal && engineResult?.supported ? (
               <ExpensesBreakdown
-                variant="readonly"
+                variant="summary"
                 deal={deal}
                 lineItems={expensesForPanel}
                 insideCapRecoups={insideCapRecoupsForPanel}
@@ -633,11 +622,6 @@ export default async function ShowDetailPage({
               </CardContent>
             )}
           </Card>
-        </div>
-
-        {/* Activity log — full timeline, collapsed by default */}
-        <div className="mt-6">
-          <ActivityLog events={activity} variant="full" defaultExpanded={false} />
         </div>
       </div>
     </div>
