@@ -20,15 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertTriangle,
-  Lock,
-  Paperclip,
-  Receipt,
-  Smartphone,
-  Ticket,
-  Wallet,
-} from "lucide-react";
+import { AlertTriangle, Ticket, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { ReceiptModal, type ReceiptModalData } from "./ReceiptModal";
@@ -37,6 +29,11 @@ import {
   type SettlementResultV2,
 } from "@/lib/dealMathV2";
 import type { Deal, TicketSale, Expense, Comp } from "@/db/schema";
+import {
+  ExpensesBreakdown,
+  type ExpensesBreakdownLineItem,
+  type ExpensesBreakdownRecoup,
+} from "@/components/settlement/ExpensesBreakdown";
 
 export type DetailsExpense = {
   id: string;
@@ -374,309 +371,106 @@ export function SettlementDetails({
       )}
       <DetailsSubtotal label="Net Box Office" value={netBoxOffice} />
 
-      {/* ── Section B — EXPENSES (live) ──────────────────────────── */}
-      <SectionHeader
-        icon={<Receipt className="size-3.5" />}
-        label={
-          <>
-            Expenses
-            <span
-              className="inline-flex items-center gap-1 ml-2 text-[9.5px] text-brand-700 normal-case tracking-normal"
-              title="Auto-polling every 5 seconds"
+      {/* ── Section B — EXPENSES (live, via shared ExpensesBreakdown) */}
+      <ExpensesBreakdown
+        variant="live"
+        deal={deal}
+        lineItems={expenses as ExpensesBreakdownLineItem[]}
+        insideCapRecoups={insideCapRecoups as ExpensesBreakdownRecoup[]}
+        originalGross={originalGross}
+        adjustedGross={adjustedGross}
+        capAbsorbed={capAbsorbed}
+        netExpense={netExpense}
+        adjustment={adjustment ?? null}
+        freshIds={freshIds}
+        onOpenReceipt={setOpenReceipt}
+        editorSlot={
+          adjustmentMode === "editor" ? (
+            <form
+              onSubmit={handleSaveAdjustment}
+              className="px-5 py-4 border-b border-ink-100 bg-amber-50/40 space-y-2.5"
             >
-              <Smartphone className="size-2.5 animate-pulse" /> live
-            </span>
-          </>
-        }
-        right={
-          deal.expenseCap != null
-            ? `cap ${formatMoney(deal.expenseCap)}`
-            : undefined
-        }
-      />
-      {expenses.length === 0 && insideCapRecoups.length === 0 ? (
-        <li className="px-5 py-4 text-[12px] text-ink-500 italic border-b border-ink-100 list-none">
-          No expenses yet. Use the [Send PM link] button below to get the
-          production manager started.
-        </li>
-      ) : (
-        <>
-          {expenses.map((e) => {
-            const fresh = freshIds.has(e.id);
-            const fromPm = e.source === "pm_mobile";
-            const vendor =
-              e.description?.split(" · ")[0] ??
-              CATEGORY_LABELS[e.category] ??
-              e.category;
-            return (
-              <li
-                key={e.id}
-                className={cn(
-                  "list-none px-5 py-2.5 border-b border-ink-100 transition-colors",
-                  fresh && fromPm && "bg-brand-50",
-                )}
-                style={
-                  fresh && fromPm
-                    ? { animation: "flash-bg 1.5s ease-out 1" }
-                    : undefined
-                }
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[12.5px] font-medium text-ink-900">
-                        {CATEGORY_LABELS[e.category] ?? e.category}
-                      </span>
-                      {e.receiptPath && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setOpenReceipt({
-                              receiptPath: e.receiptPath!,
-                              vendor,
-                              amount: e.amount,
-                              category: e.category,
-                              submittedBy:
-                                e.source === "pm_mobile"
-                                  ? "Production manager"
-                                  : "Booker",
-                              submittedAt: e.enteredAt,
-                            })
-                          }
-                          className="inline-flex items-center gap-1 text-[10.5px] font-medium text-ink-500 hover:text-ink-800 underline underline-offset-2"
-                          aria-label="View receipt"
-                        >
-                          <Paperclip className="size-2.5" />
-                          View receipt
-                        </button>
-                      )}
-                      {fresh && fromPm ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-100 text-brand-800 ring-1 ring-inset ring-brand-200">
-                          just now · from production manager
-                        </span>
-                      ) : fromPm ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200/60">
-                          PM
-                        </span>
-                      ) : null}
-                      <CapPill amount={e.amount} deal={deal} category={e.category} />
-                    </div>
-                    {e.description && (
-                      <div className="text-[11.5px] text-ink-600 mt-0.5 truncate">
-                        {e.description}
-                      </div>
-                    )}
-                  </div>
-                  <div className="font-mono tabular text-[13.5px] text-ink-900 shrink-0">
-                    {formatMoney(e.amount)}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-          {insideCapRecoups.map((r) => {
-            // Map deal-term recoups to a canned receipt by category. Marketing
-            // recoups get the Spotify-style invoice; others fall back to the
-            // production receipt rather than rendering nothing.
-            const recoupReceipt =
-              r.category === "marketing"
-                ? "/receipts/marketing.svg"
-                : "/receipts/production.svg";
-            return (
-              <li
-                key={r.id}
-                className="list-none px-5 py-2.5 border-b border-ink-100"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[12.5px] font-medium text-ink-900">
-                        {r.label}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenReceipt({
-                            receiptPath: recoupReceipt,
-                            vendor: r.label,
-                            amount: r.amount,
-                            category: r.category,
-                            submittedBy: "Deal term",
-                            submittedAt: new Date().toISOString(),
-                          })
-                        }
-                        className="inline-flex items-center gap-1 text-[10.5px] font-medium text-ink-500 hover:text-ink-800 underline underline-offset-2"
-                        aria-label="View receipt"
-                      >
-                        <Paperclip className="size-2.5" />
-                        View receipt
-                      </button>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200/60">
-                        deal term · in-cap
-                      </span>
-                    </div>
-                  </div>
-                  <div className="font-mono tabular text-[13.5px] text-ink-900 shrink-0">
-                    {formatMoney(r.amount)}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </>
-      )}
-      {/* ── Section B substructure (Phase 8.9.2) ──────────────────── */}
-      {/* Original gross expenses subtotal — always shown. When no
-           adjustment is present this is the only Section B subtotal
-           before Net Expenses; when an adjustment lands, it sits
-           above the editor / locked block so the chain
-           original → adjustment → adjusted → cap → net reads cleanly. */}
-      <DetailsSubtotal
-        label={
-          adjustmentAmount !== null
-            ? "Original gross expenses"
-            : "Gross expenses"
-        }
-        value={originalGross}
-      />
-
-      {adjustmentMode === "editor" && (
-        <form
-          onSubmit={handleSaveAdjustment}
-          className="px-5 py-4 border-b border-ink-100 bg-amber-50/40 space-y-2.5"
-        >
-          <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-amber-900 font-medium">
-            <AlertTriangle className="size-3.5" />
-            Other adjustments
-            <span className="ml-1 normal-case tracking-normal text-[10.5px] text-amber-700">
-              · modifies gross expenses · cap logic re-evaluates · saving locks the row
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2">
-            <input
-              type="text"
-              value={adjustmentDraft.description}
-              onChange={(e) =>
-                setAdjustmentDraft((d) => ({
-                  ...d,
-                  description: e.target.value,
-                }))
-              }
-              placeholder="e.g. Adjusting for duplicate hospitality"
-              disabled={adjustmentSaving}
-              className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
-            />
-            <input
-              type="text"
-              inputMode="decimal"
-              value={adjustmentDraft.amount}
-              onChange={(e) =>
-                setAdjustmentDraft((d) => ({ ...d, amount: e.target.value }))
-              }
-              placeholder="-500 or 500"
-              disabled={adjustmentSaving}
-              className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono"
-            />
-          </div>
-          <div className="text-[10.5px] text-amber-800/90 leading-relaxed">
-            <strong>Sign convention:</strong>{" "}
-            <span className="text-rose-700">Negative</span> = remove or refund a
-            charge (e.g. enter <span className="font-mono">-500</span> to remove
-            $500 of duplicate hospitality).{" "}
-            <span className="text-emerald-700">Positive</span> = add an additional
-            charge. The adjustment changes the gross expense total, then cap
-            logic re-evaluates.
-          </div>
-          {adjustmentError && (
-            <div className="text-[11.5px] text-rose-700">{adjustmentError}</div>
-          )}
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              type="submit"
-              disabled={adjustmentSaving}
-              className="rounded-md bg-amber-700 hover:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[12.5px] font-medium px-3 py-1.5"
-            >
-              {adjustmentSaving
-                ? "Saving…"
-                : "Save and send revised settlement to agent"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAdjustmentDraft({ description: "", amount: "" });
-                setAdjustmentError(null);
-              }}
-              disabled={adjustmentSaving}
-              className="text-[12.5px] text-ink-600 hover:text-ink-900 underline underline-offset-2"
-            >
-              Cancel
-            </button>
-            <span className="ml-auto text-[10.5px] text-amber-800">
-              Saving invalidates any prior GM approval — you&apos;ll need to
-              re-send to GM after the agent re-acknowledges.
-            </span>
-          </div>
-        </form>
-      )}
-      {adjustmentMode === "locked" && adjustment && (
-        <div className="px-5 py-3 border-b border-ink-100 bg-amber-50/30">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-amber-900 font-medium">
-                <Lock className="size-3" />
+                <AlertTriangle className="size-3.5" />
                 Other adjustments
+                <span className="ml-1 normal-case tracking-normal text-[10.5px] text-amber-700">
+                  · modifies gross expenses · cap logic re-evaluates · saving locks the row
+                </span>
               </div>
-              <div className="text-[12.5px] text-ink-900 mt-1">
-                &ldquo;{adjustment.description}&rdquo;
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2">
+                <input
+                  type="text"
+                  value={adjustmentDraft.description}
+                  onChange={(e) =>
+                    setAdjustmentDraft((d) => ({
+                      ...d,
+                      description: e.target.value,
+                    }))
+                  }
+                  placeholder="e.g. Adjusting for duplicate hospitality"
+                  disabled={adjustmentSaving}
+                  className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={adjustmentDraft.amount}
+                  onChange={(e) =>
+                    setAdjustmentDraft((d) => ({
+                      ...d,
+                      amount: e.target.value,
+                    }))
+                  }
+                  placeholder="-500 or 500"
+                  disabled={adjustmentSaving}
+                  className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono"
+                />
               </div>
-              <div className="text-[10.5px] text-ink-500 mt-0.5">
-                Saved by {adjustment.savedBy} ·{" "}
-                {new Date(adjustment.savedAt).toLocaleString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
+              <div className="text-[10.5px] text-amber-800/90 leading-relaxed">
+                <strong>Sign convention:</strong>{" "}
+                <span className="text-rose-700">Negative</span> = remove or
+                refund a charge (e.g. enter{" "}
+                <span className="font-mono">-500</span> to remove $500 of
+                duplicate hospitality).{" "}
+                <span className="text-emerald-700">Positive</span> = add an
+                additional charge. The adjustment changes the gross expense
+                total, then cap logic re-evaluates.
               </div>
-            </div>
-            <div
-              className={cn(
-                "font-mono tabular text-[14px] font-medium shrink-0",
-                adjustment.amount < 0 ? "text-rose-700" : "text-emerald-700",
+              {adjustmentError && (
+                <div className="text-[11.5px] text-rose-700">
+                  {adjustmentError}
+                </div>
               )}
-            >
-              {adjustment.amount > 0 ? "+" : ""}
-              {formatMoney(adjustment.amount)}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Adjusted gross expenses subtotal — only when an adjustment is
-           saved. This is the value the cap evaluates against. */}
-      {adjustmentAmount !== null && (
-        <DetailsSubtotal
-          label="Adjusted gross expenses"
-          value={adjustedGross}
-        />
-      )}
-
-      {/* Cap logic — based on the current effective gross (adjusted if
-           present, original otherwise). Hidden when there's no cap or
-           the cap is unused. */}
-      {deal.expenseCap != null && (
-        <div className="px-5 py-2 border-b border-ink-100">
-          <div className="text-[11px] text-ink-500">
-            {capAbsorbed > 0
-              ? `Cap logic: ${formatMoney(capAbsorbed)} over cap absorbed by venue`
-              : adjustedGross === 0
-                ? `Cap unused (${formatMoney(deal.expenseCap)})`
-                : `Cap logic: under cap (${formatMoney(deal.expenseCap)}), actual used`}
-          </div>
-        </div>
-      )}
-
-      <DetailsSubtotal label="Net Expenses" value={netExpense} />
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={adjustmentSaving}
+                  className="rounded-md bg-amber-700 hover:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[12.5px] font-medium px-3 py-1.5"
+                >
+                  {adjustmentSaving
+                    ? "Saving…"
+                    : "Save and send revised settlement to agent"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdjustmentDraft({ description: "", amount: "" });
+                    setAdjustmentError(null);
+                  }}
+                  disabled={adjustmentSaving}
+                  className="text-[12.5px] text-ink-600 hover:text-ink-900 underline underline-offset-2"
+                >
+                  Cancel
+                </button>
+                <span className="ml-auto text-[10.5px] text-amber-800">
+                  Saving invalidates any prior GM approval — you&apos;ll need
+                  to re-send to GM after the agent re-acknowledges.
+                </span>
+              </div>
+            </form>
+          ) : null
+        }
+      />
 
       {/* ── Section C — SETTLEMENT TO ARTIST (clean, single source) ─ */}
       <SectionHeader
@@ -798,37 +592,4 @@ function DetailsTotal({ label, value }: { label: string; value: number }) {
   );
 }
 
-function CapPill({
-  amount,
-  deal,
-  category,
-}: {
-  amount: number;
-  deal: Deal;
-  category: string;
-}) {
-  // Hospitality has its own sub-cap; render that pill when relevant.
-  if (
-    category === "hospitality" &&
-    deal.hospitalityCap != null &&
-    amount > deal.hospitalityCap
-  ) {
-    return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-800 ring-1 ring-inset ring-rose-200">
-        over hospitality cap
-      </span>
-    );
-  }
-  if (category === "hospitality") {
-    return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-200">
-        hospitality cap
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-ink-50 text-ink-700 ring-1 ring-inset ring-ink-200/60">
-      in-cap
-    </span>
-  );
-}
+// CapPill moved to components/settlement/ExpensesBreakdown (Phase 8.9.3).

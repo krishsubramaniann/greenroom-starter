@@ -25,7 +25,12 @@ import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
 import { deriveDisplayStatus } from "@/lib/settlementStage";
 import { Button } from "@/components/ui/button";
 import { parseBonuses } from "@/lib/dealMath";
-import { parseDealRecoups } from "@/lib/dealMathV2";
+import { calculateSettlementV2, parseDealRecoups } from "@/lib/dealMathV2";
+import {
+  ExpensesBreakdown,
+  type ExpensesBreakdownLineItem,
+  type ExpensesBreakdownRecoup,
+} from "@/components/settlement/ExpensesBreakdown";
 import {
   formatMoney,
   formatMoneyCompact,
@@ -68,9 +73,89 @@ export default async function ShowDetailPage({
   const grossSoFar = ticketSales.reduce((sum, t) => sum + t.gross, 0);
   const totalFees = ticketSales.reduce((sum, t) => sum + t.fees, 0);
   const totalTickets = ticketSales.reduce((sum, t) => sum + (t.qty ?? 0), 0);
-  const totalExpenses = expenses
+
+  // Phase 8.9.3 — run the V2 engine here so the show detail page's
+  // Expenses panel + header Expenses stat mirror the same canonical
+  // numbers the settle page reads (originalGross, adjustedGross,
+  // capAbsorbed, netExpense). Cheap to recompute server-side; keeps
+  // the two pages in lockstep.
+  const settlementAdjustment =
+    settlement?.adjustmentSavedAt && settlement.adjustmentAmount != null
+      ? {
+          amount: settlement.adjustmentAmount,
+          description: settlement.adjustmentDescription ?? undefined,
+        }
+      : null;
+  const engineResult = deal
+    ? calculateSettlementV2({
+        deal,
+        ticketSales,
+        expenses,
+        comps,
+        venueCapacity: 650,
+        adjustment: settlementAdjustment,
+      })
+    : null;
+  const engineOriginalGross =
+    engineResult?.supported
+      ? engineResult.trace.find((s) => s.key === "gross_expenses")?.value ?? 0
+      : 0;
+  const engineAdjustedGross =
+    engineResult?.supported
+      ? engineResult.adjustmentApplied?.adjustedGross ?? engineOriginalGross
+      : 0;
+  const engineCapAbsorbed =
+    engineResult?.supported
+      ? engineResult.adjustmentApplied?.capAbsorbed ??
+        Math.max(0, engineOriginalGross - (deal?.expenseCap ?? Infinity))
+      : 0;
+  const engineNetExpense = engineResult?.supported
+    ? engineResult.totalExpenses
+    : 0;
+  /** Pre-engine raw sum — used as a fallback when the deal isn't
+   *  confirmed yet (no engine result), otherwise we surface the
+   *  canonical engine value below. */
+  const rawExpensesSum = expenses
     .filter((e) => !e.absorbedByVenue)
     .reduce((sum, e) => sum + e.amount, 0);
+  const headerExpensesStat = engineResult?.supported
+    ? engineNetExpense
+    : rawExpensesSum;
+  const insideCapRecoupsForPanel: ExpensesBreakdownRecoup[] = deal
+    ? parseDealRecoups(deal)
+        .filter(
+          (r) => r.position === "inside_cap" || r.position === "ambiguous",
+        )
+        .map((r) => ({
+          id: r.id,
+          category: r.category,
+          label: r.label,
+          amount: r.amount,
+        }))
+    : [];
+  const expensesForPanel: ExpensesBreakdownLineItem[] = expenses
+    .filter((e) => !e.absorbedByVenue)
+    .map((e) => ({
+      id: e.id,
+      category: e.category,
+      amount: e.amount,
+      description: e.description,
+      source: (e.source ?? "manual") as "manual" | "pm_mobile",
+      receiptPath: e.receiptPath ?? null,
+      enteredAt: e.enteredAt.toISOString(),
+      absorbedByVenue: e.absorbedByVenue,
+    }));
+  const lockedAdjustment =
+    settlement?.adjustmentSavedAt &&
+    settlement.adjustmentDescription &&
+    settlement.adjustmentAmount != null
+      ? {
+          description: settlement.adjustmentDescription,
+          amount: settlement.adjustmentAmount,
+          savedAt: settlement.adjustmentSavedAt.toISOString(),
+          savedBy: settlement.adjustmentSavedBy ?? "Booker",
+        }
+      : null;
 
   // Activity log for the show — full timeline, chronological.
   const activity = await db
@@ -78,9 +163,6 @@ export default async function ShowDetailPage({
     .from(activityEvents)
     .where(eq(activityEvents.showId, show.id))
     .orderBy(asc(activityEvents.occurredAt));
-  const absorbedTotal = expenses
-    .filter((e) => e.absorbedByVenue)
-    .reduce((sum, e) => sum + e.amount, 0);
 
   const totalCompCount = comps.reduce((s, c) => s + c.count, 0);
   const compsCountingTowardGross = comps
@@ -158,7 +240,10 @@ export default async function ShowDetailPage({
         <div className="flex items-baseline gap-10 mt-8 pt-5 border-t border-ink-200/40">
           <MiniStat label="Gross" value={formatMoneyCompact(grossSoFar)} />
           <MiniStat label="Tickets" value={String(totalTickets)} />
-          <MiniStat label="Expenses" value={formatMoneyCompact(totalExpenses)} />
+          <MiniStat
+            label="Expenses"
+            value={formatMoneyCompact(headerExpensesStat)}
+          />
           {settlement?.totalToArtist != null && (
             <MiniStat label="To artist" value={formatMoneyCompact(settlement.totalToArtist)} accent />
           )}
@@ -513,23 +598,31 @@ export default async function ShowDetailPage({
             </CardContent>
           </Card>
 
-          {/* Expenses */}
-          <Card className="md:col-span-3">
-            <CardHeader>
+          {/* Expenses — Phase 8.9.3 readonly mirror of settle page Section B */}
+          <Card className="md:col-span-3 p-0 overflow-hidden">
+            <CardHeader className="px-5 py-3 border-b border-ink-100">
               <div>
                 <CardTitle>Expenses</CardTitle>
                 <CardDescription>
-                  Entered during the week, often incompletely.
+                  Logged by production manager during the show. Reconciled in
+                  settlement.
                 </CardDescription>
               </div>
-              {absorbedTotal > 0 && (
-                <PlainBadge variant="amber">
-                  {formatMoney(absorbedTotal)} absorbed
-                </PlainBadge>
-              )}
             </CardHeader>
-            <CardContent>
-              {expenses.length === 0 ? (
+            {deal && engineResult?.supported ? (
+              <ExpensesBreakdown
+                variant="readonly"
+                deal={deal}
+                lineItems={expensesForPanel}
+                insideCapRecoups={insideCapRecoupsForPanel}
+                originalGross={engineOriginalGross}
+                adjustedGross={engineAdjustedGross}
+                capAbsorbed={engineCapAbsorbed}
+                netExpense={engineNetExpense}
+                adjustment={lockedAdjustment}
+              />
+            ) : (
+              <CardContent>
                 <div className="text-[13px] text-ink-500">
                   No expenses yet.
                   <span className="text-ink-400">
@@ -537,36 +630,8 @@ export default async function ShowDetailPage({
                     Production manager logs expenses during the show.
                   </span>
                 </div>
-              ) : (
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr className="text-left border-b border-ink-100/80">
-                      <th className="py-2 eyebrow text-[10px] text-ink-400 font-semibold">Category</th>
-                      <th className="py-2 eyebrow text-[10px] text-ink-400 font-semibold">Description</th>
-                      <th className="py-2 eyebrow text-[10px] text-ink-400 font-semibold text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-ink-100/60">
-                    {expenses.map((e) => (
-                      <tr key={e.id}>
-                        <td className="py-2.5 capitalize">
-                          {e.category}
-                          {e.absorbedByVenue && (
-                            <PlainBadge variant="amber" className="ml-2">absorbed</PlainBadge>
-                          )}
-                        </td>
-                        <td className="py-2.5 text-ink-500">{e.description ?? "—"}</td>
-                        <td className="py-2.5 text-right font-mono tabular">{formatMoney(e.amount)}</td>
-                      </tr>
-                    ))}
-                    <tr className="font-medium">
-                      <td className="py-3" colSpan={2}>Total (passed through)</td>
-                      <td className="py-3 text-right font-mono tabular">{formatMoney(totalExpenses)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              )}
-            </CardContent>
+              </CardContent>
+            )}
           </Card>
         </div>
 
