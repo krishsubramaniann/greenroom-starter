@@ -47,6 +47,9 @@ type Props = {
   initialGmApprovedAt: string | null;
   initialGmHeldAt: string | null;
   initialGmHoldReason: string | null;
+  /** Phase 8.9.6 — seeded from the server so the banner reads the
+   *  right copy on first render rather than after the 5s poll tick. */
+  initialPmNoExpensesToReport?: boolean;
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -65,6 +68,7 @@ export function SettleCtaBar({
   initialGmApprovedAt,
   initialGmHeldAt,
   initialGmHoldReason,
+  initialPmNoExpensesToReport = false,
 }: Props) {
   const router = useRouter();
 
@@ -106,6 +110,11 @@ export function SettleCtaBar({
   // Show a one-shot "PM just finalized" banner for 30s after the flip
   const [showJustFinalized, setShowJustFinalized] = useState(false);
   const lastSeenFinalizedAt = useRef<string | null>(initialPmExpensesFinalizedAt);
+  // Phase 8.9.6 — tracks whether the most-recent finalize was the
+  // "no expenses to report" path so the banner copy reads accordingly.
+  const [pmNoExpenses, setPmNoExpenses] = useState(
+    initialPmNoExpensesToReport,
+  );
 
   useEffect(() => {
     let stopped = false;
@@ -134,6 +143,7 @@ export function SettleCtaBar({
         setGmApprovedAt(data.gmApprovedAt ?? null);
         setGmHeldAt(data.gmHeldAt ?? null);
         setGmHoldReason(data.gmHoldReason ?? null);
+        setPmNoExpenses(data.pmNoExpensesToReport === true);
       } catch {
         // Best-effort polling.
       }
@@ -225,8 +235,9 @@ export function SettleCtaBar({
           <Inbox className="size-4 text-brand-700 mt-0.5 shrink-0" />
           <div className="flex-1">
             <div className="text-[12.5px] font-medium text-brand-900">
-              Production manager signaled expenses complete · ready for your
-              review
+              {pmNoExpenses
+                ? "Production manager signaled expenses complete · no expenses to report this show"
+                : "Production manager signaled expenses complete · ready for your review"}
             </div>
             <div className="text-[11px] text-brand-700/80 mt-0.5">
               {showJustFinalized ? "just now" : `at ${formatTime(pmFinalizedAt)}`}

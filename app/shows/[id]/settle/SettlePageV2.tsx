@@ -316,6 +316,25 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     .orderBy(desc(activityEventsTable.occurredAt))
     .limit(20);
 
+  // Phase 8.9.6 — read the latest pm_expenses_finalized event payload
+  // so the CtaBar banner can show the "no expenses to report" copy on
+  // the first server-rendered tick rather than waiting 5s for the
+  // first poll.
+  const latestPmFinalize = recentActivity.find(
+    (e) => e.eventType === "pm_expenses_finalized",
+  );
+  const initialPmNoExpensesToReport = (() => {
+    if (!latestPmFinalize?.payloadJson) return false;
+    try {
+      const payload = JSON.parse(latestPmFinalize.payloadJson) as {
+        noExpensesToReport?: boolean;
+      };
+      return payload.noExpensesToReport === true;
+    } catch {
+      return false;
+    }
+  })();
+
   // "Previously held" provenance: when the GM's approval released a prior
   // hold, the gm_approved activity event payload carries
   // releasedFromHold=true + previousHoldReason. Surface that on the right
@@ -522,6 +541,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
                     settlement?.gmHeldAt?.toISOString() ?? null
                   }
                   initialGmHoldReason={settlement?.gmHoldReason ?? null}
+                  initialPmNoExpensesToReport={initialPmNoExpensesToReport}
                 />
               )}
 

@@ -226,7 +226,10 @@ export default async function ShowDetailPage({
           />
         </div>
 
-        {/* Key numbers strip */}
+        {/* Key numbers strip — Phase 8.9.6: TO ARTIST is always present
+             so the four-stat layout reads consistently. Engine output is
+             the canonical source; pre-end-of-show shows render as a "—"
+             placeholder. */}
         <div className="flex items-baseline gap-10 mt-8 pt-5 border-t border-ink-200/40">
           <MiniStat label="Gross" value={formatMoneyCompact(grossSoFar)} />
           <MiniStat label="Tickets" value={String(totalTickets)} />
@@ -234,9 +237,16 @@ export default async function ShowDetailPage({
             label="Expenses"
             value={formatMoneyCompact(headerExpensesStat)}
           />
-          {settlement?.totalToArtist != null && (
-            <MiniStat label="To artist" value={formatMoneyCompact(settlement.totalToArtist)} accent />
-          )}
+          <MiniStat
+            label="To artist"
+            value={
+              engineResult?.supported &&
+              (show.endOfShowAt != null || settlement != null)
+                ? formatMoneyCompact(engineResult.totalToArtist)
+                : "—"
+            }
+            accent
+          />
         </div>
       </div>
 

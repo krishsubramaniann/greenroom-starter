@@ -16,7 +16,15 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/db";
 import { shareLinks, shows, deals, activityEvents } from "@/db/schema";
 
-type Body = { token?: string; showId?: string };
+type Body = {
+  token?: string;
+  showId?: string;
+  /** Phase 8.9.6 — when true, the PM hit "No expenses to report"
+   *  instead of submitting any line items. Same finalize timestamp;
+   *  the activity event payload carries the flag so the booker's
+   *  banner + activity log read accordingly. */
+  noExpensesToReport?: boolean;
+};
 
 export async function POST(req: NextRequest) {
   let body: Body;
@@ -25,7 +33,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const { token, showId } = body;
+  const { token, showId, noExpensesToReport } = body;
   if (!token || !showId) {
     return NextResponse.json(
       { error: "token + showId required" },
@@ -67,10 +75,19 @@ export async function POST(req: NextRequest) {
     actorType: "production_manager",
     actorName: "Production manager",
     actorRole: "PM",
-    summary: "PM signaled expenses complete · ready for Mariana's review",
-    payloadJson: JSON.stringify({ surface: "pm_mobile" }),
+    summary: noExpensesToReport
+      ? "PM: no expenses to report for this show"
+      : "PM signaled expenses complete · ready for Mariana's review",
+    payloadJson: JSON.stringify({
+      surface: "pm_mobile",
+      noExpensesToReport: noExpensesToReport === true,
+    }),
     occurredAt: now,
   });
 
-  return NextResponse.json({ ok: true, finalizedAt: now.toISOString() });
+  return NextResponse.json({
+    ok: true,
+    finalizedAt: now.toISOString(),
+    noExpensesToReport: noExpensesToReport === true,
+  });
 }

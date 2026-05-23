@@ -10,7 +10,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { shows, settlements, shareLinks } from "@/db/schema";
+import {
+  shows,
+  settlements,
+  shareLinks,
+  activityEvents,
+} from "@/db/schema";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -40,6 +45,34 @@ export async function GET(req: NextRequest) {
         .limit(1)
     : [];
 
+  // Phase 8.9.6 — surface whether the most-recent pm_expenses_finalized
+  // event was the "no expenses to report" path so SettleCtaBar's banner
+  // can read the right copy without polling the activity feed.
+  let pmNoExpensesToReport = false;
+  if (show.pmExpensesFinalizedAt) {
+    const [latestFinalize] = await db
+      .select()
+      .from(activityEvents)
+      .where(
+        and(
+          eq(activityEvents.showId, showId),
+          eq(activityEvents.eventType, "pm_expenses_finalized"),
+        ),
+      )
+      .orderBy(desc(activityEvents.occurredAt))
+      .limit(1);
+    if (latestFinalize?.payloadJson) {
+      try {
+        const payload = JSON.parse(latestFinalize.payloadJson) as {
+          noExpensesToReport?: boolean;
+        };
+        pmNoExpensesToReport = payload.noExpensesToReport === true;
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
   return NextResponse.json({
     endOfShowAt: show.endOfShowAt?.toISOString() ?? null,
     pmExpensesFinalizedAt: show.pmExpensesFinalizedAt?.toISOString() ?? null,
@@ -58,5 +91,6 @@ export async function GET(req: NextRequest) {
     adjustmentAmount: settlement?.adjustmentAmount ?? null,
     adjustmentSavedAt: settlement?.adjustmentSavedAt?.toISOString() ?? null,
     adjustmentSavedBy: settlement?.adjustmentSavedBy ?? null,
+    pmNoExpensesToReport,
   });
 }

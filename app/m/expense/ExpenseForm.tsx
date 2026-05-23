@@ -54,6 +54,10 @@ export function ExpenseForm({
   const [finalizedAt, setFinalizedAt] = useState<string | null>(
     initialFinalizedAt,
   );
+  // Phase 8.9.6 — distinguish the two "we're done" paths so the
+  // post-submit confirmation screen can show the right copy. Also
+  // controls visibility of the "No expenses to report" CTA.
+  const [noExpensesReported, setNoExpensesReported] = useState(false);
 
   const canSubmit =
     vendor.trim().length > 0 && parseFloat(amount) > 0 && !submitting;
@@ -126,8 +130,42 @@ export function ExpenseForm({
     }
   }
 
+  async function handleNoExpenses() {
+    if (count !== 0 || finalizing) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Confirm: no operational expenses for this show. This will signal Mariana that you're done — same as clicking Expense Finalized after submitting expenses. Continue?",
+      )
+    ) {
+      return;
+    }
+    setFinalizing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finalize-pm-expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, showId, noExpensesToReport: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Finalize failed");
+      }
+      const data = await res.json();
+      setFinalizedAt(data.finalizedAt);
+      setNoExpensesReported(true);
+      setMode("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Finalize failed");
+    } finally {
+      setFinalizing(false);
+    }
+  }
+
   // Done mode: thank-you screen with "Need to add one more?" escape hatch.
   if (mode === "done") {
+    const wasNoExpensesPath = noExpensesReported || (count === 0 && finalizedAt);
     return (
       <div className="space-y-5">
         <div className="rounded-lg border border-brand-700/40 bg-brand-900/30 px-5 py-6 text-center">
@@ -135,10 +173,14 @@ export function ExpenseForm({
             <Check className="size-6" />
           </div>
           <div className="text-[17px] text-white font-medium mt-3">
-            Submitted to Mariana for review
+            {wasNoExpensesPath
+              ? "Confirmed — no expenses for this show"
+              : "Submitted to Mariana for review"}
           </div>
           <div className="text-[12px] text-ink-300 mt-1">
-            {count} receipt{count === 1 ? "" : "s"} logged · You&apos;re done — thanks!
+            {wasNoExpensesPath
+              ? "Mariana has been notified."
+              : `${count} receipt${count === 1 ? "" : "s"} logged · You're done — thanks!`}
           </div>
           {finalizedAt && (
             <div className="text-[10.5px] text-ink-500 mt-2 font-mono">
@@ -325,6 +367,38 @@ export function ExpenseForm({
           )}
         </button>
       </div>
+
+      {/* Phase 8.9.6 — no-expenses-to-report path. Only relevant before
+           any expense has been submitted; once an expense exists, the
+           normal Finalize path applies. */}
+      {count === 0 && (
+        <div className="pt-3 border-t border-ink-800">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex-1 h-px bg-ink-700" />
+            <span className="text-[10.5px] uppercase tracking-wider text-ink-500 font-medium">
+              or
+            </span>
+            <div className="flex-1 h-px bg-ink-700" />
+          </div>
+          <p className="text-[12px] text-ink-400 mb-2">
+            This show had no PM-logged expenses to report.
+          </p>
+          <button
+            type="button"
+            onClick={handleNoExpenses}
+            disabled={finalizing}
+            className={cn(
+              "w-full h-11 rounded-lg text-[13px] font-medium flex items-center justify-center gap-2 transition-colors border",
+              finalizing
+                ? "border-ink-700 bg-ink-800 text-ink-500"
+                : "border-ink-700 bg-ink-900 hover:bg-ink-800 text-ink-200",
+            )}
+          >
+            <Check className="size-4" />
+            No expenses to report
+          </button>
+        </div>
+      )}
     </form>
   );
 }
