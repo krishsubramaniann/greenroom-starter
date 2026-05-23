@@ -8,11 +8,17 @@ This is the starter codebase for the Greenroom Applied AI PM case study.
 
 </div>
 
----
+    ---
 
 You're looking at a working but mediocre product. It's enough to feel real, but every workflow has gaps. **Your job isn't to fix everything — it's to pick a slice and design it well.** See your case study brief for full instructions.
 
 ## Before you start
+
+*Start here:** See [DEMO.md](./DEMO.md) for the 5-minute setup and 8-minute guided walkthrough.
+
+**Bonus deliverable:** [PROCESS.md](./PROCESS.md) documents the AI build process — phase index, sample prompts, and judgment calls made during the build.
+
+**Strategic memo and PRD:** sent separately via email.
 
 You'll need:
 
@@ -147,6 +153,10 @@ data/
 
 These aren't decorative. They contain signals the database deliberately doesn't capture — Mariana's frustrations, the agent's pet peeves, the things that escalate disputes. Mine them.
 
+
+
+
+---
 ---
 
 ## File map
