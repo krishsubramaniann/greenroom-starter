@@ -249,11 +249,11 @@ export function SettlementDetails({
   const feesValue = feesStep?.value ?? 0;
   const netBoxOffice = grossValue + compAdjustmentTotal + feesValue;
 
-  // Section B aggregates: operational expenses + inside-cap recoups +
-  // hospitality / cap absorption breakdown.
-  const operational = expenses.filter((e) => !e.absorbedByVenue);
-  const grossExpenses = operational.reduce((s, e) => s + e.amount, 0);
-
+  // Section B substructure — read straight off the engine's
+  // trace + adjustmentApplied so the UI and the canonical math stay
+  // in sync. Phase 8.9.2 reshapes this entirely: the adjustment is a
+  // gross-expense modifier and the cap re-evaluates over the
+  // adjusted gross.
   const insideCapRecoups = (
     deal.recoupsJson ? (JSON.parse(deal.recoupsJson) as Array<{
       id: string;
@@ -263,24 +263,21 @@ export function SettlementDetails({
       position: string;
     }>) : []
   ).filter((r) => r.position === "inside_cap" || r.position === "ambiguous");
-  const recoupTotal = insideCapRecoups.reduce((s, r) => s + r.amount, 0);
 
-  const totalCappable = grossExpenses + recoupTotal;
-  const cap = deal.expenseCap ?? Infinity;
-  const cappedTotal = Math.min(totalCappable, cap);
-  const absorbedByVenueAmt = totalCappable - cappedTotal;
-
-  const nearingCap =
-    deal.expenseCap != null &&
-    totalCappable >= deal.expenseCap * 0.8 &&
-    totalCappable < deal.expenseCap;
-  const atCap =
-    deal.expenseCap != null && totalCappable >= deal.expenseCap;
-
-  // Phase 8.9.1 — the engine now bakes the adjustment into its
-  // canonical totalToArtist + netBoxOffice + trace, so we read straight
-  // from `result`. No local recomputation needed.
   const adjustmentAmount = adjustment?.amount ?? null;
+  const originalGross =
+    traceByKey["gross_expenses"]?.value ??
+    expenses
+      .filter((e) => !e.absorbedByVenue)
+      .reduce((s, e) => s + e.amount, 0) +
+      insideCapRecoups.reduce((s, r) => s + r.amount, 0);
+  const adjustedGross =
+    result.adjustmentApplied?.adjustedGross ?? originalGross;
+  const capAbsorbed = result.adjustmentApplied?.capAbsorbed ?? Math.max(
+    0,
+    originalGross - (deal.expenseCap ?? Infinity),
+  );
+  const netExpense = result.totalExpenses;
 
   // Editor state machine:
   //   hidden   — no dispute + no adjustment
@@ -528,26 +525,21 @@ export function SettlementDetails({
           })}
         </>
       )}
-      <div className="px-5 py-2.5 border-b border-ink-100">
-        <div className="flex items-center justify-between gap-2 text-[12px] text-ink-700">
-          <span>Gross expenses</span>
-          <span className="font-mono tabular">{formatMoney(grossExpenses + recoupTotal)}</span>
-        </div>
-        {deal.expenseCap != null && (
-          <div className="text-[11px] text-ink-500 mt-0.5">
-            {totalCappable === 0
-              ? `Cap unused (${formatMoney(deal.expenseCap)})`
-              : atCap
-                ? `Cap logic: ${formatMoney(absorbedByVenueAmt)} over cap absorbed by venue`
-                : nearingCap
-                  ? `Cap logic: ${((totalCappable / deal.expenseCap) * 100).toFixed(0)}% of cap — under, actual used`
-                  : `Cap logic: under cap, actual used`}
-          </div>
-        )}
-      </div>
-      <DetailsSubtotal label="Net Expenses" value={cappedTotal} />
+      {/* ── Section B substructure (Phase 8.9.2) ──────────────────── */}
+      {/* Original gross expenses subtotal — always shown. When no
+           adjustment is present this is the only Section B subtotal
+           before Net Expenses; when an adjustment lands, it sits
+           above the editor / locked block so the chain
+           original → adjustment → adjusted → cap → net reads cleanly. */}
+      <DetailsSubtotal
+        label={
+          adjustmentAmount !== null
+            ? "Original gross expenses"
+            : "Gross expenses"
+        }
+        value={originalGross}
+      />
 
-      {/* ── Phase 8.9 — Other adjustments (dispute resolution) ────── */}
       {adjustmentMode === "editor" && (
         <form
           onSubmit={handleSaveAdjustment}
@@ -557,7 +549,7 @@ export function SettlementDetails({
             <AlertTriangle className="size-3.5" />
             Other adjustments
             <span className="ml-1 normal-case tracking-normal text-[10.5px] text-amber-700">
-              · editable while dispute is active · saving locks the row
+              · modifies gross expenses · cap logic re-evaluates · saving locks the row
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2">
@@ -570,7 +562,7 @@ export function SettlementDetails({
                   description: e.target.value,
                 }))
               }
-              placeholder="e.g. Hospitality adjustment per agent request"
+              placeholder="e.g. Adjusting for duplicate hospitality"
               disabled={adjustmentSaving}
               className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300"
             />
@@ -581,15 +573,19 @@ export function SettlementDetails({
               onChange={(e) =>
                 setAdjustmentDraft((d) => ({ ...d, amount: e.target.value }))
               }
-              placeholder="-200 or 200"
+              placeholder="-500 or 500"
               disabled={adjustmentSaving}
               className="rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono"
             />
           </div>
           <div className="text-[10.5px] text-amber-800/90 leading-relaxed">
-            <strong>Sign convention:</strong> <span className="text-emerald-700">positive</span> = more to artist (e.g.,
-            refund a charge they shouldn&apos;t have absorbed). <span className="text-rose-700">Negative</span> = less to artist
-            (e.g., additional venue deduction). The amount applies directly to the artist&apos;s net pool.
+            <strong>Sign convention:</strong>{" "}
+            <span className="text-rose-700">Negative</span> = remove or refund a
+            charge (e.g. enter <span className="font-mono">-500</span> to remove
+            $500 of duplicate hospitality).{" "}
+            <span className="text-emerald-700">Positive</span> = add an additional
+            charge. The adjustment changes the gross expense total, then cap
+            logic re-evaluates.
           </div>
           {adjustmentError && (
             <div className="text-[11.5px] text-rose-700">{adjustmentError}</div>
@@ -616,7 +612,7 @@ export function SettlementDetails({
               Cancel
             </button>
             <span className="ml-auto text-[10.5px] text-amber-800">
-              Saving invalidates any prior GM approval — you'll need to
+              Saving invalidates any prior GM approval — you&apos;ll need to
               re-send to GM after the agent re-acknowledges.
             </span>
           </div>
@@ -631,7 +627,7 @@ export function SettlementDetails({
                 Other adjustments
               </div>
               <div className="text-[12.5px] text-ink-900 mt-1">
-                {adjustment.description}
+                &ldquo;{adjustment.description}&rdquo;
               </div>
               <div className="text-[10.5px] text-ink-500 mt-0.5">
                 Saved by {adjustment.savedBy} ·{" "}
@@ -656,54 +652,51 @@ export function SettlementDetails({
         </div>
       )}
 
-      {/* ── Section C — SETTLEMENT TO ARTIST ─────────────────────── */}
+      {/* Adjusted gross expenses subtotal — only when an adjustment is
+           saved. This is the value the cap evaluates against. */}
+      {adjustmentAmount !== null && (
+        <DetailsSubtotal
+          label="Adjusted gross expenses"
+          value={adjustedGross}
+        />
+      )}
+
+      {/* Cap logic — based on the current effective gross (adjusted if
+           present, original otherwise). Hidden when there's no cap or
+           the cap is unused. */}
+      {deal.expenseCap != null && (
+        <div className="px-5 py-2 border-b border-ink-100">
+          <div className="text-[11px] text-ink-500">
+            {capAbsorbed > 0
+              ? `Cap logic: ${formatMoney(capAbsorbed)} over cap absorbed by venue`
+              : adjustedGross === 0
+                ? `Cap unused (${formatMoney(deal.expenseCap)})`
+                : `Cap logic: under cap (${formatMoney(deal.expenseCap)}), actual used`}
+          </div>
+        </div>
+      )}
+
+      <DetailsSubtotal label="Net Expenses" value={netExpense} />
+
+      {/* ── Section C — SETTLEMENT TO ARTIST (clean, single source) ─ */}
       <SectionHeader
         icon={<Wallet className="size-3.5" />}
         label="Settlement to artist"
       />
       <DetailsRow label="Net Box Office" value={netBoxOffice} dim />
-      <DetailsRow label="− Net Expenses" value={-cappedTotal} dim />
-      {/* Phase 8.9.1 — show the adjustment line BEFORE Net pool when it
-           feeds the branch (vs / % of net), so Net pool reads as the
-           post-adjustment value the percentage branch uses. */}
-      {adjustmentAmount !== null && result.adjustmentApplied?.appliedToNet && (
-        <DetailsRow
-          label="+ Other adjustments"
-          value={adjustmentAmount}
-          note={adjustment?.description}
-          dim
-        />
-      )}
+      <DetailsRow label="− Net Expenses" value={-netExpense} dim />
       {netStep && (
         <DetailsRow
           label="= Net pool"
           value={result.netBoxOffice}
-          note={
-            adjustmentAmount !== null && result.adjustmentApplied?.appliedToNet
-              ? `Net pool after adjustment = ${formatMoney(result.netBoxOffice)}`
-              : "net to artist pool"
-          }
+          note="net to artist pool"
         />
       )}
       {branchStep && (
         <DetailsRow
           label={branchStep.label}
           value={branchStep.value}
-          note={
-            adjustmentAmount !== null && result.adjustmentApplied?.appliedToNet
-              ? `Recomputed with adjusted net ${formatMoney(result.netBoxOffice)}`
-              : branchStep.formula
-          }
-        />
-      )}
-      {/* For flat / % of gross the adjustment is a pass-through on the
-           total, not a net-pool input, so the row lives after the branch. */}
-      {adjustmentAmount !== null && !result.adjustmentApplied?.appliedToNet && (
-        <DetailsRow
-          label="+ Other adjustments"
-          value={adjustmentAmount}
-          note={adjustment?.description}
-          dim
+          note={branchStep.formula}
         />
       )}
       <DetailsTotal label="Total to artist" value={result.totalToArtist} />

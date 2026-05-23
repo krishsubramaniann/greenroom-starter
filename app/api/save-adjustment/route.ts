@@ -84,11 +84,11 @@ export async function POST(req: NextRequest) {
   const now = new Date();
   const trimmedDescription = description.trim();
 
-  // Phase 8.9.1 — recompute the canonical post-adjustment total so the
-  // settlements.total_to_artist column (read by /shows index, show
-  // detail page, metrics, activity rollups) stays in sync. Without
-  // this, those surfaces show the pre-adjustment value while the
-  // settle page + agent view + GM mobile show the post-adjustment one.
+  // Phase 8.9.2 — recompute the canonical pre/post-adjustment numbers
+  // so (a) settlements.total_to_artist (read by /shows index, show
+  // detail page, metrics, activity rollups) stays in sync, and (b)
+  // the settlement_adjusted activity event payload captures the
+  // structural diff for audit ("cap was protecting the artist" story).
   const [deal, showTickets, showExpenses, showComps] = await Promise.all([
     db.select().from(deals).where(eq(deals.showId, showId)).limit(1),
     db.select().from(ticketSalesTable).where(eq(ticketSalesTable.showId, showId)),
@@ -96,8 +96,27 @@ export async function POST(req: NextRequest) {
     db.select().from(compsTable).where(eq(compsTable.showId, showId)),
   ]);
   let newTotalToArtist: number | null = settlement.totalToArtist ?? null;
+  let beforeSnapshot: {
+    totalToArtist: number;
+    netExpense: number;
+    capAbsorbed: number;
+    originalGross: number;
+  } | null = null;
+  let afterSnapshot: {
+    totalToArtist: number;
+    netExpense: number;
+    capAbsorbed: number;
+    adjustedGross: number;
+  } | null = null;
   if (deal[0]) {
-    const recalc = calculateSettlementV2({
+    const before = calculateSettlementV2({
+      deal: deal[0],
+      ticketSales: showTickets,
+      expenses: showExpenses,
+      comps: showComps,
+      venueCapacity: 650,
+    });
+    const after = calculateSettlementV2({
       deal: deal[0],
       ticketSales: showTickets,
       expenses: showExpenses,
@@ -105,8 +124,31 @@ export async function POST(req: NextRequest) {
       venueCapacity: 650,
       adjustment: { amount, description: trimmedDescription },
     });
-    if (recalc.supported) {
-      newTotalToArtist = recalc.totalToArtist;
+    if (before.supported && after.supported) {
+      newTotalToArtist = after.totalToArtist;
+      // The before-engine had no adjustment, so totalExpenses = the
+      // pre-adjustment net expense and originalGross is recoverable
+      // via the "gross_expenses" trace step (or totalExpenses + any
+      // capAbsorbed it ate, which is 0 in the no-adjustment case
+      // when cap wasn't binding, else (cap absorbed)).
+      const beforeOriginalGross =
+        before.trace.find((s) => s.key === "gross_expenses")?.value ??
+        before.totalExpenses;
+      const beforeCapAbsorbed =
+        Math.max(0, beforeOriginalGross - (deal[0].expenseCap ?? Infinity));
+      beforeSnapshot = {
+        totalToArtist: before.totalToArtist,
+        netExpense: before.totalExpenses,
+        capAbsorbed: beforeCapAbsorbed,
+        originalGross: beforeOriginalGross,
+      };
+      afterSnapshot = {
+        totalToArtist: after.totalToArtist,
+        netExpense: after.adjustmentApplied?.netExpense ?? after.totalExpenses,
+        capAbsorbed: after.adjustmentApplied?.capAbsorbed ?? 0,
+        adjustedGross:
+          after.adjustmentApplied?.adjustedGross ?? beforeOriginalGross + amount,
+      };
     }
   }
 
@@ -155,8 +197,20 @@ export async function POST(req: NextRequest) {
     summary: `Mariana saved adjustment · ${formatSignedAmount(amount)} · "${trimmedDescription.slice(0, 80)}${trimmedDescription.length > 80 ? "…" : ""}"`,
     payloadJson: JSON.stringify({
       description: trimmedDescription,
-      amount,
+      adjustmentAmount: amount,
       surface: "settle_page",
+      settlementId: settlement.id,
+      // Phase 8.9.2 — structural before/after so the audit trail
+      // proves whether the cap absorbed the change or it flowed
+      // through to the artist total.
+      originalGross: beforeSnapshot?.originalGross ?? null,
+      adjustedGross: afterSnapshot?.adjustedGross ?? null,
+      capAbsorbedBefore: beforeSnapshot?.capAbsorbed ?? null,
+      capAbsorbedAfter: afterSnapshot?.capAbsorbed ?? null,
+      netExpenseBefore: beforeSnapshot?.netExpense ?? null,
+      netExpenseAfter: afterSnapshot?.netExpense ?? null,
+      totalToArtistBefore: beforeSnapshot?.totalToArtist ?? null,
+      totalToArtistAfter: afterSnapshot?.totalToArtist ?? null,
     }),
     occurredAt: now,
   });

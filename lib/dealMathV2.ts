@@ -39,6 +39,19 @@ export type TraceStepKind =
   | "recoup"
   | "fee"
   | "expense"
+  /** Phase 8.9.2 — Section B substructure. The "original gross
+   *  expenses" subtotal (raw sum of line items + inside-cap recoups
+   *  before the dispute-resolution adjustment is applied). */
+  | "gross_expenses_subtotal"
+  /** Phase 8.9.2 — only emitted when adjustmentSavedAt is set. */
+  | "adjustment"
+  /** Phase 8.9.2 — only emitted when an adjustment is present, shows
+   *  the post-adjustment gross BEFORE the cap binds. */
+  | "adjusted_gross_subtotal"
+  /** Phase 8.9.2 — emitted when the cap binds (cap absorbed > 0). */
+  | "cap_absorbed"
+  /** Phase 8.9.2 — final net expense that flows into Section C. */
+  | "net_expense"
   | "branch"
   | "bonus"
   | "result";
@@ -158,14 +171,17 @@ export type SettlementResultV2 =
       grossBoxOffice: number;
       netBoxOffice: number;
       totalExpenses: number;
-      /** Phase 8.9.1 — when an adjustment was supplied, describes how it
-       *  was integrated. Null when no adjustment was passed. */
+      /** Phase 8.9.2 — when an adjustment was supplied, describes the
+       *  expense-side numbers it produced. Null when no adjustment
+       *  was passed. UI surfaces (Section B subtotals, activity log
+       *  payload) read straight off this. */
       adjustmentApplied: {
         amount: number;
         description: string | null;
-        /** True for vs / % of net (folded into the branch via the net
-         *  pool). False for flat / % of gross (tail added). */
-        appliedToNet: boolean;
+        originalGross: number;
+        adjustedGross: number;
+        capAbsorbed: number;
+        netExpense: number;
       } | null;
     }
   | { supported: false; reason: string; dealType: Deal["dealType"] };
@@ -225,8 +241,12 @@ export function parseCompRules(deal: Deal): Record<string, boolean> | null {
 const KEY_GROSS = "gross";
 const KEY_FEES = "fees";
 const KEY_EXPENSES = "expenses";
-const KEY_NET = "net";
+const KEY_GROSS_EXPENSES = "gross_expenses";
 const KEY_ADJUSTMENT = "adjustment";
+const KEY_ADJUSTED_GROSS = "adjusted_gross";
+const KEY_CAP_ABSORBED = "cap_absorbed";
+const KEY_NET_EXPENSE = "net_expense";
+const KEY_NET = "net";
 const KEY_BRANCH = "branch";
 const KEY_RESULT = "result";
 
@@ -357,32 +377,30 @@ export function calculateSettlementV2(
     },
     formula: `Ticketing fees: ${fmtSigned(-totalFees)}`,
   });
-  const adjustedGross = runningGross - totalFees;
+  /** Net box office (gross − comps & off-gross recoups − fees), before
+   *  expenses. Renamed in Phase 8.9.2 to disambiguate from the
+   *  expense-side `adjustedGross` (originalGross + adjustment). */
+  const netBoxOfficeBeforeExpenses = runningGross - totalFees;
 
-  // ── 5. Operational expenses + inside-cap recoups (single capped line) ────
-  // Hospitality is sub-capped first; overage is absorbed by venue and removed
-  // from the operational pool entirely. Then the overall expense cap binds.
+  // ── 5. Expenses → adjustment → cap (Phase 8.9.2) ─────────────────────────
+  // The math model is structurally:
+  //
+  //     originalGross   = sum of line items + inside-cap recoups
+  //     adjustedGross   = originalGross + adjustment (signed, may be 0)
+  //     capAbsorbed     = max(0, adjustedGross − cap)
+  //     netExpense      = min(adjustedGross, cap)
+  //
+  // The single-line dispute-resolution adjustment is a modifier on the
+  // gross expense pool, not a tail on the net pool. That way the cap
+  // re-evaluates over the adjusted gross and the artist isn't
+  // double-charged when the cap was already binding.
+  //
+  // Hospitality sub-cap absorption is collapsed into the overall cap
+  // here — exceedance above the overall cap is what the venue absorbs.
+  // Per-row "over hospitality cap" badges remain a UI signal.
   const operational = expenses.filter((e) => !e.absorbedByVenue);
+  const operationalTotal = operational.reduce((s, e) => s + e.amount, 0);
 
-  const hospitalityExpenses = operational.filter(
-    (e) => e.category === "hospitality",
-  );
-  const nonHospitality = operational.filter(
-    (e) => e.category !== "hospitality",
-  );
-
-  const rawHospitality = hospitalityExpenses.reduce(
-    (s, e) => s + e.amount,
-    0,
-  );
-  const hospitalityCap = deal.hospitalityCap ?? Infinity;
-  const chargedHospitality = Math.min(rawHospitality, hospitalityCap);
-  const hospitalityAbsorbed = rawHospitality - chargedHospitality;
-
-  const operationalTotal =
-    nonHospitality.reduce((s, e) => s + e.amount, 0) + chargedHospitality;
-
-  // Inside-cap recoups (incl. ambiguous, which the engine treats as inside_cap).
   const insideCapRecoups = recoups.filter(
     (r) => r.position === "inside_cap" || r.position === "ambiguous",
   );
@@ -391,47 +409,98 @@ export function calculateSettlementV2(
     0,
   );
 
-  const totalCappable = operationalTotal + insideCapRecoupsTotal;
+  const originalGross = operationalTotal + insideCapRecoupsTotal;
+  const adjustmentAmount = input.adjustment?.amount ?? 0;
+  const adjustedGross = originalGross + adjustmentAmount;
   const expenseCap = deal.expenseCap ?? Infinity;
-  const cappedTotal = Math.min(totalCappable, expenseCap);
-  const overageAbsorbed = totalCappable - cappedTotal;
-  const totalAbsorbed = hospitalityAbsorbed + overageAbsorbed;
+  const netExpense = Math.min(adjustedGross, expenseCap);
+  const capAbsorbed = Math.max(0, adjustedGross - expenseCap);
 
-  const expenseFlag: TraceStepFlag | undefined = insideCapRecoups.some(
-    (r) => r.position === "ambiguous",
-  )
-    ? "ambiguity"
-    : totalAbsorbed > 0
-      ? "absorbed_by_venue"
-      : undefined;
+  // Step 1 — "Original gross expenses" subtotal. The structural anchor
+  // for Section B: this is what the gross would be with no adjustment.
+  trace.push({
+    key: KEY_GROSS_EXPENSES,
+    label: "Original gross expenses",
+    value: originalGross,
+    kind: "gross_expenses_subtotal",
+    source: {
+      type: "expense_row",
+      refIds: operational.map((e) => e.id),
+      detail: insideCapRecoups
+        .map((r) => `(+) ${r.label} via deal term`)
+        .join("; "),
+    },
+    formula: insideCapRecoupsTotal > 0
+      ? `Ops ${fmtMoney(operationalTotal)} + recoups ${fmtMoney(insideCapRecoupsTotal)} = ${fmtMoney(originalGross)}`
+      : `Sum of line items = ${fmtMoney(originalGross)}`,
+  });
 
-  const expenseFormulaParts: string[] = [];
-  if (nonHospitality.length > 0)
-    expenseFormulaParts.push(
-      `ops ${fmtMoney(nonHospitality.reduce((s, e) => s + e.amount, 0))}`,
-    );
-  if (rawHospitality > 0)
-    expenseFormulaParts.push(
-      hospitalityAbsorbed > 0
-        ? `hospitality ${fmtMoney(chargedHospitality)} (${fmtMoney(
-            hospitalityAbsorbed,
-          )} absorbed)`
-        : `hospitality ${fmtMoney(chargedHospitality)}`,
-    );
-  for (const r of insideCapRecoups) {
-    expenseFormulaParts.push(
-      `${r.label} ${fmtMoney(r.amount)}${
-        r.position === "ambiguous" ? " ⚑" : ""
-      }`,
-    );
+  // Step 2 — optional adjustment line. Only emitted when an adjustment
+  // is supplied; SettlementDetails reads this trace step to render
+  // either the editor (when state=editor) or the locked summary.
+  if (input.adjustment != null) {
+    trace.push({
+      key: KEY_ADJUSTMENT,
+      label: "Other adjustments",
+      value: adjustmentAmount,
+      kind: "adjustment",
+      source: {
+        type: "derived",
+        detail: input.adjustment.description ?? "single-line adjustment",
+      },
+      formula: `${fmtSigned(adjustmentAmount)} (${
+        input.adjustment.description ?? "adjustment"
+      })`,
+    });
+
+    // Step 3 — "Adjusted gross expenses" subtotal. Shown only when an
+    // adjustment is present; the cap evaluation runs on this value.
+    trace.push({
+      key: KEY_ADJUSTED_GROSS,
+      label: "Adjusted gross expenses",
+      value: adjustedGross,
+      kind: "adjusted_gross_subtotal",
+      source: { type: "derived", detail: "originalGross + adjustment" },
+      formula: `${fmtMoney(originalGross)} ${fmtSigned(adjustmentAmount)} = ${fmtMoney(adjustedGross)}`,
+    });
   }
-  if (overageAbsorbed > 0)
-    expenseFormulaParts.push(`cap binds at ${fmtMoney(expenseCap)}`);
 
+  // Step 4 — cap binding marker (only when cap actually binds).
+  if (capAbsorbed > 0) {
+    trace.push({
+      key: KEY_CAP_ABSORBED,
+      label: `Cap absorbed by venue`,
+      value: -capAbsorbed,
+      kind: "cap_absorbed",
+      source: { type: "deal_term", field: "expense_cap" },
+      flag: "absorbed_by_venue",
+      formula: `${fmtMoney(adjustedGross)} − cap ${fmtMoney(expenseCap)} = venue absorbs ${fmtMoney(capAbsorbed)}`,
+    });
+  }
+
+  // Step 5 — canonical net expense subtotal flowing into Section C.
+  trace.push({
+    key: KEY_NET_EXPENSE,
+    label: "Net Expenses",
+    value: -netExpense,
+    kind: "net_expense",
+    source: { type: "derived", detail: "min(adjustedGross, cap)" },
+    flag: insideCapRecoups.some((r) => r.position === "ambiguous")
+      ? "ambiguity"
+      : undefined,
+    formula:
+      capAbsorbed > 0
+        ? `Cap binds at ${fmtMoney(expenseCap)}`
+        : `Under cap, actual used: ${fmtMoney(netExpense)}`,
+  });
+
+  // Legacy KEY_EXPENSES trace step — kept for downstream consumers
+  // (walkthrough trace ack joins, ActivityLog rollups) that key off
+  // the original expense step. Mirrors KEY_NET_EXPENSE's value.
   trace.push({
     key: KEY_EXPENSES,
     label: "Expenses + inside-cap recoups",
-    value: -cappedTotal,
+    value: -netExpense,
     kind: "expense",
     source: {
       type: "expense_row",
@@ -440,23 +509,10 @@ export function calculateSettlementV2(
         .map((r) => `(+) ${r.label} via deal term`)
         .join("; "),
     },
-    flag: expenseFlag,
-    formula: expenseFormulaParts.join(" + ") + ` = ${fmtMoney(cappedTotal)}`,
-    detail:
-      totalAbsorbed > 0
-        ? `Venue absorbed ${fmtMoney(totalAbsorbed)} (${
-            hospitalityAbsorbed > 0
-              ? `${fmtMoney(hospitalityAbsorbed)} hospitality`
-              : ""
-          }${hospitalityAbsorbed > 0 && overageAbsorbed > 0 ? " + " : ""}${
-            overageAbsorbed > 0
-              ? `${fmtMoney(overageAbsorbed)} over expense cap`
-              : ""
-          })`
-        : undefined,
+    formula: `Net expense = ${fmtMoney(netExpense)}`,
   });
 
-  let net = adjustedGross - cappedTotal;
+  let net = netBoxOfficeBeforeExpenses - netExpense;
 
   // ── 6. Off-net recoups ───────────────────────────────────────────────────
   for (const r of recoups) {
@@ -483,34 +539,9 @@ export function calculateSettlementV2(
     formula: `Net = ${fmtMoney(net)}`,
   });
 
-  // ── 6½. Single-line adjustment (Phase 8.9.1) ─────────────────────────────
-  // The dispute-resolution adjustment lives between net pool and branch
-  // for vs / % of net deals so the percentage branch sees the adjusted
-  // pool. For flat / % of gross the branch ignores net, so we tail the
-  // adjustment onto artistTake after branch — but emit the trace step
-  // here either way for a consistent narrative.
-  const adjustment = input.adjustment ?? null;
-  const adjustmentAppliedToNet =
-    adjustment != null &&
-    (deal.dealType === "vs" || deal.dealType === "percentage_of_net");
-  if (adjustment != null) {
-    if (adjustmentAppliedToNet) {
-      net += adjustment.amount;
-    }
-    trace.push({
-      key: KEY_ADJUSTMENT,
-      label: "Other adjustments",
-      value: adjustment.amount,
-      kind: "expense",
-      source: {
-        type: "derived",
-        detail: adjustment.description ?? "single-line adjustment",
-      },
-      formula: adjustmentAppliedToNet
-        ? `Adjusted net = ${fmtMoney(net)}`
-        : `Pass-through adjustment: ${fmtSigned(adjustment.amount)}`,
-    });
-  }
+  // Phase 8.9.2 — the dispute-resolution adjustment is folded into
+  // gross expenses above (before the cap binds), not a tail on the
+  // net pool. Section C reads the canonical `net` directly.
 
   // ── 7. Branch computation ────────────────────────────────────────────────
   const guaranteeBranch = deal.guaranteeAmount ?? 0;
@@ -607,12 +638,10 @@ export function calculateSettlementV2(
     });
   }
 
-  // Phase 8.9.1 — pass-through adjustment tail for flat / % of gross.
-  // For vs / % of net the adjustment is already inside `base` via the
-  // adjusted net pool, so don't double-count.
-  if (adjustment != null && !adjustmentAppliedToNet) {
-    artistTake += adjustment.amount;
-  }
+  // Phase 8.9.2 — no post-branch adjustment tail. The dispute
+  // adjustment is folded into gross expenses upstream, so the branch
+  // result already reflects the cap-evaluated math for every deal
+  // type.
 
   // ── Result ───────────────────────────────────────────────────────────────
   const totalToArtist = round2(artistTake);
@@ -638,13 +667,16 @@ export function calculateSettlementV2(
     ambiguities: unresolvedAmbiguities,
     grossBoxOffice: round2(grossFromTickets),
     netBoxOffice: round2(net),
-    totalExpenses: round2(cappedTotal),
+    totalExpenses: round2(netExpense),
     adjustmentApplied:
-      adjustment != null
+      input.adjustment != null
         ? {
-            amount: adjustment.amount,
-            description: adjustment.description ?? null,
-            appliedToNet: adjustmentAppliedToNet,
+            amount: adjustmentAmount,
+            description: input.adjustment.description ?? null,
+            originalGross: round2(originalGross),
+            adjustedGross: round2(adjustedGross),
+            capAbsorbed: round2(capAbsorbed),
+            netExpense: round2(netExpense),
           }
         : null,
   };
