@@ -978,6 +978,11 @@ async function main() {
         { value: "mixed" as const, weight: 1 },
       ]),
       createdAt: new Date(date),
+      // Phase 8.9.5 — every generated historical show is treated as
+      // a frozen artifact: settle page renders clean read-only state,
+      // no CTAs, no End-of-show button. Hollow Oak is the only
+      // interactive demo show (inserted separately below).
+      isViewOnlyExample: true,
     });
 
     const deal = generateDeal(artist.tier);
@@ -1359,6 +1364,7 @@ async function main() {
     internalNotes:
       "[Mariana, March 19] Settlement disputed by Daniel Hwang at WME re: marketing recoup interpretation. Marcus signed off on additional $720 to make it go away. See dispute-thread for full email chain. Going forward — get marketing recoup language explicit in the deal email.",
     createdAt: coastalShowDate,
+    isViewOnlyExample: true,
   });
   dealsToInsert.push({
     id: `deal_${coastalShowId}`,
@@ -1508,6 +1514,7 @@ async function main() {
     roomConfig: "standing",
     internalNotes: null,
     createdAt: paleLakeCreated,
+    isViewOnlyExample: true,
   });
   dealsToInsert.push({
     id: `deal_${paleLakeShowId}`,

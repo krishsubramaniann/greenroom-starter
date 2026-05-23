@@ -30,14 +30,37 @@ type Props = {
   showId: string;
   hasDeal: boolean;
   endOfShowAt: Date | string | null;
+  /** Phase 8.9.5 — when true, this show is a frozen artifact. Action
+   *  bar collapses to just [View settlement]; the end-of-show + reset
+   *  controls don't apply. */
+  isViewOnlyExample?: boolean;
 };
 
-export function ShowActionBar({ showId, hasDeal, endOfShowAt }: Props) {
+export function ShowActionBar({
+  showId,
+  hasDeal,
+  endOfShowAt,
+  isViewOnlyExample = false,
+}: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<"endShow" | "reset" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isEnded = endOfShowAt != null;
+
+  // Phase 8.9.5 — view-only artifacts go straight to "View settlement".
+  // No end-of-show button, no reset link, no edit affordances.
+  if (isViewOnlyExample) {
+    return (
+      <div className="flex flex-col items-end gap-2 mt-6 shrink-0">
+        <Link href={`/shows/${showId}/settle`}>
+          <Button variant="brand" size="lg" className="gap-1.5">
+            <FileSpreadsheet className="size-3.5" /> View settlement
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   async function handleEndShow() {
     setBusy("endShow");

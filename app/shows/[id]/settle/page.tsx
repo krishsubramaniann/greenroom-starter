@@ -22,7 +22,13 @@ export default async function SettlePage({
   const data = await getShowById(id);
   if (!data) notFound();
 
-  const useV2 = data.deal?.confirmedAt != null;
+  // Route to V2 when the deal has been explicitly confirmed via the
+  // capture flow, OR when the show is a view-only legacy artifact —
+  // Phase 8.9.5 wants those rendered through V2's clean read-only
+  // path rather than the SettlePageLegacy "vs deals not supported yet"
+  // panel from the pre-V2 era.
+  const useV2 =
+    data.deal?.confirmedAt != null || data.show.isViewOnlyExample === true;
 
   return useV2 ? (
     <SettlePageV2 data={data} searchParams={sp} />

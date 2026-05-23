@@ -211,7 +211,10 @@ export async function SettlePageV2({ data, searchParams }: Props) {
   }
 
   // Hard gate: settle page only opens after the show has ended.
-  if (!show.endOfShowAt) {
+  // Phase 8.9.5 — view-only legacy shows bypass this; they're rendered
+  // as historical artifacts even if the seed didn't backfill
+  // endOfShowAt.
+  if (!show.endOfShowAt && !viewOnly) {
     redirect(`/shows/${show.id}`);
   }
 
@@ -239,19 +242,25 @@ export async function SettlePageV2({ data, searchParams }: Props) {
     adjustment: settlementAdjustment,
   });
 
-  const shareUrl = settlement
-    ? await ensureSettlementShareLink(settlement.id)
-    : null;
+  // Phase 8.9.5 — share-link minting is a write-side effect of the
+  // interactive demo. View-only artifacts never need these URLs (the
+  // CtaBar is hidden), so skip the DB writes entirely.
+  const shareUrl =
+    settlement && !viewOnly
+      ? await ensureSettlementShareLink(settlement.id)
+      : null;
 
-  const pmExpenseToken = await ensurePmExpenseShareLink(show.id);
-  const pmExpenseUrl = `/m/expense?token=${pmExpenseToken}`;
+  const pmExpenseUrl = viewOnly
+    ? null
+    : `/m/expense?token=${await ensurePmExpenseShareLink(show.id)}`;
 
   // GM approval link — lazy-create when a settlement exists. The CTA is
   // gated on agent acknowledgement client-side, but having the URL ready
   // means clicking [Send to GM] never blocks on a fresh round-trip.
-  const gmApprovalUrl = settlement
-    ? `/m/gm-approve/${await ensureGmApprovalShareLink(settlement.id)}`
-    : null;
+  const gmApprovalUrl =
+    settlement && !viewOnly
+      ? `/m/gm-approve/${await ensureGmApprovalShareLink(settlement.id)}`
+      : null;
 
   const initialExpenses: DetailsExpense[] = expenses.map((e) => ({
     id: e.id,
@@ -435,21 +444,21 @@ export async function SettlePageV2({ data, searchParams }: Props) {
       <Card className="mb-6">
         <CardContent className="px-5 py-4">
           {viewOnly ? (
+            // Phase 8.9.5 — view-only shows are frozen historical
+            // artifacts. Even if the seed didn't backfill every
+            // timestamp (gmApprovedAt etc.), force the lifecycle to
+            // read as fully settled so reviewers don't see a
+            // half-complete pipeline that misrepresents the artifact.
             <LifecycleBar
-              state={deriveLifecycleState({
-                hasDeal: true,
-                dealConfirmedAt: deal.confirmedAt ?? null,
-                dealShareAccessedAt:
-                  dealShareLink?.accessedAt ?? deal.confirmedAt ?? null,
-                expensesConfirmedAt:
-                  settlement?.expensesConfirmedAt ?? null,
-                settlementStatus: settlement?.status ?? null,
-                paidAt: settlement?.paidAt ?? null,
-                gmApprovedAt: settlement?.gmApprovedAt ?? null,
-                gmHeldAt: null,
-                gmHoldReason: null,
-                adjustmentSavedAt: settlement?.adjustmentSavedAt ?? null,
-              })}
+              state={{
+                dealDraft: "complete",
+                dealSubmitted: "complete",
+                dealInReview: "complete",
+                dealSigned: "complete",
+                expensesConfirmed: "complete",
+                outcome: { label: "Finalized", state: "complete" },
+                paid: { label: "Paid", state: "complete" },
+              }}
             />
           ) : (
             <LifecycleBarPoll showId={show.id} initial={lifecycleInput} />
@@ -488,7 +497,7 @@ export async function SettlePageV2({ data, searchParams }: Props) {
           {/* Grid: main col + sidebar */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8 space-y-6">
-              {!viewOnly && (
+              {!viewOnly && pmExpenseUrl && (
                 <SettleCtaBar
                   showId={show.id}
                   pmExpenseUrl={pmExpenseUrl}

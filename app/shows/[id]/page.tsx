@@ -222,6 +222,7 @@ export default async function ShowDetailPage({
             showId={show.id}
             hasDeal={!!deal}
             endOfShowAt={show.endOfShowAt ?? null}
+            isViewOnlyExample={show.isViewOnlyExample === true}
           />
         </div>
 
@@ -279,7 +280,7 @@ export default async function ShowDetailPage({
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 {deal && <DealTypeBadge type={deal.dealType} />}
-                {deal && (
+                {deal && show.isViewOnlyExample !== true && (
                   <Link
                     href={`/shows/${show.id}/deal/capture`}
                     className="text-[11px] text-ink-500 hover:text-ink-800 underline underline-offset-2"
